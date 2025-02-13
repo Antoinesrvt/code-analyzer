@@ -13,7 +13,7 @@ interface GitHubTokenResponse {
 }
 
 // GET handler for initiating OAuth flow
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Generate state and timestamp
     const state = randomUUID();

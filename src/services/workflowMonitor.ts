@@ -1,5 +1,11 @@
 import { performanceMonitor } from './performanceService';
 
+// Helper function to get current time in milliseconds safely
+const getTimeMs = () => {
+  if (typeof window === 'undefined') return Date.now();
+  return performance?.now?.() ?? Date.now();
+};
+
 interface OperationMetrics {
   operation: string;
   startTime: number;
@@ -10,17 +16,23 @@ interface OperationMetrics {
 }
 
 class WorkflowMonitor {
-  private static instance: WorkflowMonitor;
+  private static instance: WorkflowMonitor | null = null;
   private operations: Map<string, OperationMetrics> = new Map();
   private readonly TIMEOUT_THRESHOLD = 30000; // 30 seconds
   private readonly MAX_RETRIES = 3;
   private readonly BACKOFF_BASE = 1000; // 1 second
 
   private constructor() {
-    // Private constructor for singleton
+    // Initialize only on client side
+    if (typeof window === 'undefined') return;
   }
 
   static getInstance(): WorkflowMonitor {
+    if (typeof window === 'undefined') {
+      // Return a dummy instance for SSR that does nothing
+      return new WorkflowMonitor();
+    }
+
     if (!WorkflowMonitor.instance) {
       WorkflowMonitor.instance = new WorkflowMonitor();
     }
@@ -28,23 +40,27 @@ class WorkflowMonitor {
   }
 
   startOperation(operationId: string): void {
+    if (typeof window === 'undefined') return;
+    
     console.log(`[Workflow] Starting operation: ${operationId}`);
     this.operations.set(operationId, {
       operation: operationId,
-      startTime: performance.now(),
+      startTime: getTimeMs(),
       status: 'pending',
       retries: 0,
     });
   }
 
   endOperation(operationId: string, status: 'success' | 'error' = 'success', error?: Error): void {
+    if (typeof window === 'undefined') return;
+
     const operation = this.operations.get(operationId);
     if (!operation) {
       console.warn(`[Workflow] No matching start for operation: ${operationId}`);
       return;
     }
 
-    const duration = performance.now() - operation.startTime;
+    const duration = getTimeMs() - operation.startTime;
     console.log(`[Workflow] Completed operation: ${operationId} (${duration.toFixed(2)}ms)`);
     
     this.operations.set(operationId, {
@@ -67,6 +83,11 @@ class WorkflowMonitor {
       backoffBase?: number;
     } = {}
   ): Promise<T> {
+    if (typeof window === 'undefined') {
+      // For SSR, just try the operation once without monitoring
+      return operation();
+    }
+
     const {
       timeout = this.TIMEOUT_THRESHOLD,
       maxRetries = this.MAX_RETRIES,
@@ -94,7 +115,7 @@ class WorkflowMonitor {
         ]);
 
         this.endOperation(operationId, 'success');
-        return result as T;  // Safe assertion since operation returns Promise<T>
+        return result as T;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         retries++;
@@ -107,7 +128,6 @@ class WorkflowMonitor {
         this.endOperation(operationId, 'error', lastError);
 
         if (retries <= maxRetries) {
-          // Calculate exponential backoff
           const backoffDelay = backoffBase * Math.pow(2, retries - 1);
           console.log(`[Workflow] Retrying in ${backoffDelay}ms...`);
           await new Promise(resolve => setTimeout(resolve, backoffDelay));
@@ -179,4 +199,5 @@ class WorkflowMonitor {
   }
 }
 
+// Export singleton instance
 export const workflowMonitor = WorkflowMonitor.getInstance();

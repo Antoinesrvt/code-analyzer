@@ -2,13 +2,15 @@ import { motion } from 'framer-motion';
 import { Github } from 'lucide-react';
 import { authService } from '../services/authService';
 import { useAuthStore } from '../store/useAuthStore';
+import { useRouter } from 'next/navigation';
 
 export function LoginButton() {
-  const { isAuthenticated, isLoading } = useAuthStore();
-
+  const store = useAuthStore();
+  const { isAuthenticated, isLoading } = store();
+  const router = useRouter();
   const handleLogin = async () => {
     const loginUrl = await authService.initiateLogin();
-    window.location.href = loginUrl;
+    router.push(loginUrl);
   };
 
   if (isAuthenticated) return null;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const SESSION_COOKIE = 'gh_session';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     // Create response with success status
     const response = NextResponse.json({ success: true });

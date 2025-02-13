@@ -1,45 +1,38 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../store/useStore';
-import { ModuleGraph } from './ModuleGraph';
+import { GraphNode, ModuleGraph } from './ModuleGraph';
 import { ModuleSkeleton } from './ModuleSkeleton';
 import { PerformanceReport } from './PerformanceReport';
 import { ProgressBanner } from './ProgressBanner';
-import { AnalysisProgress } from '../types';
 
 export function ModuleView() {
-  const { modules, files, loading, repository } = useStore();
+  const store = useStore();
+  const { modules, files, loading, repository, analysisProgress } = store();
   const [showPerformance, setShowPerformance] = React.useState(false);
-  const [progress, setProgress] = useState<AnalysisProgress | null>(null);
 
-  useEffect(() => {
-    const handleProgress = (event: CustomEvent<AnalysisProgress>) => {
-      setProgress(event.detail);
-    };
-
-    window.addEventListener('analysis-progress', handleProgress as EventListener);
-    return () => {
-      window.removeEventListener('analysis-progress', handleProgress as EventListener);
-    };
-  }, []);
-
-  const handleNodeClick = useCallback((node: any) => {
+  const handleNodeClick = useCallback((node: GraphNode) => {
     // Handle node click - show details in a sidebar
     console.log('Clicked node:', node);
   }, []);
+
+  // Don't render during SSR
+  if (typeof window === 'undefined') {
+    return <ModuleSkeleton />;
+  }
 
   return (
     <div className="w-full h-full relative">
       {/* Progress Banner */}
       <AnimatePresence>
-        {progress && progress.status === 'in-progress' && (
+        {analysisProgress && analysisProgress.status === 'in-progress' && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-0 left-0 right-0 z-20"
           >
-            <ProgressBanner progress={progress} />
+            <ProgressBanner progress={analysisProgress} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -91,7 +84,7 @@ export function ModuleView() {
               modules={modules}
               files={files}
               onNodeClick={handleNodeClick}
-              analysisInProgress={progress?.status === 'in-progress'}
+              analysisInProgress={analysisProgress?.status === 'in-progress'}
             />
           </motion.div>
         )}

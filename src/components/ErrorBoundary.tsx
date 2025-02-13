@@ -1,4 +1,7 @@
+"use client";
+
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Props {
   children: ReactNode;
@@ -9,7 +12,13 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+// Wrapper component to provide router to class component
+function ErrorBoundaryWrapper(props: Props) {
+  const router = useRouter();
+  return <ErrorBoundaryClass {...props} router={router} />;
+}
+
+class ErrorBoundaryClass extends Component<Props & { router: ReturnType<typeof useRouter> }, State> {
   public state: State = {
     hasError: false,
     error: null,
@@ -33,7 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => this.props.router.refresh()}
               className="px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors duration-300"
             >
               Reload Page
@@ -46,3 +55,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+export const ErrorBoundary = ErrorBoundaryWrapper;

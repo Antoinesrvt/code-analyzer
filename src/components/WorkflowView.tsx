@@ -9,7 +9,8 @@ import ReactFlow, {
 import { useStore } from '../store/useStore';
 
 export function WorkflowView() {
-  const { workflow } = useStore();
+  const store = useStore();
+  const { workflow } = store();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 

@@ -71,7 +71,7 @@ export function middleware(request: NextRequest) {
           { status: 401 }
         );
       }
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         {
           error: 'invalid_session',

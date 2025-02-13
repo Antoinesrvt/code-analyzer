@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { randomBytes, createCipheriv, createDecipheriv } from 'crypto';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/access_token';
 const COOKIE_NAME = 'gh_session';
@@ -10,11 +10,18 @@ interface GitHubTokenResponse {
   scope: string;
 }
 
+interface SessionData {
+  accessToken: string;
+  tokenType: string;
+  scope: string;
+  createdAt: number;
+}
+
 // Helper function to encrypt session data
-function encryptSession(data: any): string {
+function encryptSession(data: SessionData): string {
   const key = process.env.SESSION_SECRET!;
   const iv = randomBytes(16);
-  const cipher = require('crypto').createCipheriv('aes-256-gcm', Buffer.from(key), iv);
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(key), iv);
   
   let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -24,19 +31,19 @@ function encryptSession(data: any): string {
 }
 
 // Helper function to decrypt session data
-function decryptSession(encrypted: string): any {
+function decryptSession(encrypted: string): SessionData {
   const key = process.env.SESSION_SECRET!;
   const [ivHex, encryptedData, authTagHex] = encrypted.split(':');
   
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');
-  const decipher = require('crypto').createDecipheriv('aes-256-gcm', Buffer.from(key), iv);
+  const decipher = createDecipheriv('aes-256-gcm', Buffer.from(key), iv);
   
   decipher.setAuthTag(authTag);
   let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   
-  return JSON.parse(decrypted);
+  return JSON.parse(decrypted) as SessionData;
 }
 
 export async function POST(request: NextRequest) {

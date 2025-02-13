@@ -7,7 +7,6 @@ import { githubService } from '../services/githubService';
 import { useAnalyzedReposStore } from '../store/useAnalyzedReposStore';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import type { AnalysisProgress } from '../types';
-import type { Repository } from '@/types/auth';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
@@ -16,7 +15,9 @@ export function RepositoryInput() {
   const [url, setUrl] = useState('');
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { setRepository, setLoading, setError } = useStore();
+  const store = useStore();
+  const { setRepository, setLoading, setError } = store();
+  const analyzedReposStore = useAnalyzedReposStore();
 
   const validateUrl = (input: string): boolean => {
     const trimmedInput = input.trim().replace(/\.git$/, '');
@@ -40,6 +41,7 @@ export function RepositoryInput() {
   }, 300);
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return;
     debouncedValidation(url);
   }, [url, debouncedValidation]);
 
@@ -53,6 +55,8 @@ export function RepositoryInput() {
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (typeof window === 'undefined') return;
     
     if (!url.trim() || !isValid) {
       toast.error('Please enter a valid GitHub repository URL');
@@ -90,7 +94,7 @@ export function RepositoryInput() {
       try {
         const repo = await githubService.analyzeRepository(formattedUrl, handleProgress);
         setRepository(repo);
-        useAnalyzedReposStore.getState().addAnalyzedRepo(repo);
+        analyzedReposStore.getState().addAnalyzedRepo(repo);
         setIsSubmitting(false);
         setLoading(false);
       } catch (error) {
@@ -110,7 +114,12 @@ export function RepositoryInput() {
     };
 
     attemptAnalysis();
-  }, [url, isValid, setRepository, setLoading, setError]);
+  }, [url, isValid, setRepository, setLoading, setError, analyzedReposStore]);
+
+  // Don't render during SSR
+  if (typeof window === 'undefined') {
+    return null;
+  }
 
   return (
     <motion.form

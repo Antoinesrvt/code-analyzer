@@ -1,13 +1,35 @@
 import React from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
+import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
+import type { Module, FileNode } from '@/types';
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: 'module' | 'file';
+  status: 'pending' | 'in-progress' | 'complete' | 'error';
+  x?: number;
+  y?: number;
+}
+
+interface GraphLink {
+  source: string;
+  target: string;
+  status: 'pending' | 'in-progress' | 'complete' | 'error';
+}
 
 interface ModuleGraphProps {
-  modules: any[];
-  files: any[];
-  onNodeClick: (node: any) => void;
+  modules: Module[];
+  files: FileNode[];
+  onNodeClick: (node: GraphNode) => void;
   analysisInProgress?: boolean;
 }
+
+// Dynamically import ForceGraph2D with no SSR
+const ForceGraph2D = dynamic(
+  () => import('react-force-graph-2d'),
+  { ssr: false }
+);
 
 export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }: ModuleGraphProps) {
   const graphData = React.useMemo(() => {
@@ -15,13 +37,13 @@ export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }:
       ...modules.map((m) => ({
         id: m.id,
         label: m.name,
-        type: 'module',
+        type: 'module' as const,
         status: m.analysisStatus,
       })),
       ...files.map((f) => ({
         id: f.id,
         label: f.path,
-        type: 'file',
+        type: 'file' as const,
         status: f.analysisStatus,
       })),
     ];
@@ -37,18 +59,23 @@ export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }:
     return { nodes, links };
   }, [modules, files]);
 
-  const getNodeColor = (node: any) => {
+  const getNodeColor = (node: GraphNode) => {
     if (node.status === 'pending') return '#e2e8f0';
     if (node.status === 'in-progress') return '#93c5fd';
     if (node.type === 'module') return '#ff6b6b';
     return '#4dabf7';
   };
 
-  const getLinkColor = (link: any) => {
+  const getLinkColor = (link: GraphLink) => {
     if (link.status === 'pending') return '#e2e8f0';
     if (link.status === 'in-progress') return '#93c5fd';
     return '#cbd5e0';
   };
+
+  // Don't render during SSR
+  if (typeof window === 'undefined') {
+    return null;
+  }
 
   return (
     <motion.div
@@ -74,7 +101,7 @@ export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }:
         linkWidth={1.5}
         linkDirectionalParticles={2}
         linkDirectionalParticleSpeed={0.005}
-        nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        nodeCanvasObject={(node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
           const label = node.label;
           const fontSize = 12/globalScale;
           ctx.font = `${fontSize}px Sans-Serif`;
@@ -83,8 +110,8 @@ export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }:
 
           ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
           ctx.fillRect(
-            node.x - bckgDimensions[0] / 2,
-            node.y - bckgDimensions[1] / 2,
+            node.x! - bckgDimensions[0] / 2,
+            node.y! - bckgDimensions[1] / 2,
             bckgDimensions[0],
             bckgDimensions[1]
           );
@@ -92,11 +119,11 @@ export function ModuleGraph({ modules, files, onNodeClick, analysisInProgress }:
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = node.type === 'module' ? '#ff6b6b' : '#4dabf7';
-          ctx.fillText(label, node.x, node.y);
+          ctx.fillText(label, node.x!, node.y!);
 
           if (node.status === 'in-progress') {
             ctx.beginPath();
-            ctx.arc(node.x, node.y, 8, 0, 2 * Math.PI);
+            ctx.arc(node.x!, node.y!, 8, 0, 2 * Math.PI);
             ctx.strokeStyle = '#93c5fd';
             ctx.lineWidth = 2;
             ctx.stroke();

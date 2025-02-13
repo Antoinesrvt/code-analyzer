@@ -3,68 +3,87 @@ import type { FileNode, Module, AnalysisProgress } from '@/types';
 import type { Repository, User } from '@/types/auth';
 import { performanceMonitor } from './performanceService';
 import { workflowMonitor } from './workflowMonitor';
-import { authService } from './authService';
 import { config } from '@/config/config';
 import type { AnalyzedRepo } from '@/store/useAnalyzedReposStore';
+import { updateAnalysisProgress } from '@/store/useStore';
 
+// Helper function to get current time in milliseconds safely
+const getTimeMs = () => {
+  if (typeof window === 'undefined') return Date.now();
+  return performance?.now?.() ?? Date.now();
+};
 
 const BATCH_SIZE = 10;
 
-export class GitHubService {
+const defaultAnalysisProgress: AnalysisProgress = {
+  totalFiles: 0,
+  analyzedFiles: 0,
+  currentPhase: 'initializing',
+  estimatedTimeRemaining: 0,
+  status: 'in-progress',
+  errors: [],
+};
+
+class GitHubService {
   private octokit: Octokit | null = null;
-  private static instance: GitHubService;
-  private analysisProgress: AnalysisProgress = {
-    totalFiles: 0,
-    analyzedFiles: 0,
-    currentPhase: 'initializing',
-    estimatedTimeRemaining: 0,
-    status: 'in-progress',
-    errors: [],
-  };
+  private static instance: GitHubService | null = null;
+  private analysisProgress: AnalysisProgress;
+  private initialized: boolean = false;
 
   private constructor() {
-    // Initialize the service
-    this.initializeClient();
-  }
-
-  private async initializeClient() {
-    const authState = authService.getAuthState();
-    if (authState.isAuthenticated) {
-      try {
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        if (data.hasToken) {
-          // Create a client that will use our API proxy
-          this.octokit = new Octokit({
-            baseUrl: '/api/github',
-            request: {
-              timeout: config.api.timeout
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Failed to initialize GitHub client:', error);
-      }
+    this.analysisProgress = { ...defaultAnalysisProgress };
+    // Only initialize if we're on the client side
+    if (typeof window !== 'undefined') {
+      this.initializeClient();
     }
   }
 
   public static getInstance(): GitHubService {
+    if (typeof window === 'undefined') {
+      // Return a dummy instance for SSR that does nothing
+      const dummyInstance = new GitHubService();
+      dummyInstance.initialized = true; // Prevent initialization attempts
+      return dummyInstance;
+    }
+
     if (!GitHubService.instance) {
       GitHubService.instance = new GitHubService();
     }
     return GitHubService.instance;
   }
 
+  private async initializeClient() {
+    if (this.initialized || typeof window === 'undefined') return;
+    
+    try {
+      const response = await fetch('/api/auth/status');
+      const data = await response.json();
+      if (data.hasToken) {
+        this.octokit = new Octokit({
+          baseUrl: '/api/github',
+          request: {
+            timeout: config.api.timeout
+          }
+        });
+      }
+      this.initialized = true;
+    } catch (error) {
+      console.error('Failed to initialize GitHub client:', error);
+      this.initialized = false;
+    }
+  }
+
   private updateProgress(update: Partial<AnalysisProgress>) {
+    if (typeof window === 'undefined') return;
+    
     this.analysisProgress = { ...this.analysisProgress, ...update };
-    window.dispatchEvent(new CustomEvent('analysis-progress', { 
-      detail: this.analysisProgress 
-    }));
+    // Only update store on client side
+    updateAnalysisProgress(this.analysisProgress);
   }
 
   private calculateEstimatedTime(processed: number, total: number, startTime: number): number {
     if (processed === 0) return 0;
-    const elapsed = performance.now() - startTime;
+    const elapsed = getTimeMs() - startTime;
     const averageTimePerItem = elapsed / processed;
     return Math.round(averageTimePerItem * (total - processed));
   }
@@ -243,38 +262,38 @@ export class GitHubService {
   }
 
   private async ensureAuthenticated(): Promise<Octokit> {
-    if (!this.octokit) {
-      const authState = authService.getAuthState();
-      if (!authState.isAuthenticated) {
-        throw new Error('Authentication required');
-      }
-      await this.initializeClient();
-      if (!this.octokit) {
-        throw new Error('Failed to initialize GitHub client');
-      }
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot authenticate in server environment');
     }
+
+    if (!this.initialized) {
+      await this.initializeClient();
+    }
+
+    if (!this.octokit) {
+      throw new Error('GitHub client not initialized. Please ensure you are authenticated.');
+    }
+
     return this.octokit;
   }
 
-  async analyzeRepository(url: string, onProgress?: (progress: AnalysisProgress) => void): Promise<AnalyzedRepo> {
+  public async analyzeRepository(url: string, onProgress?: (progress: AnalysisProgress) => void): Promise<AnalyzedRepo> {
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot analyze repository during SSR');
+    }
+
     const operationId = 'analyze-repository';
     workflowMonitor.startOperation(operationId);
     
     try {
       const octokit = await this.ensureAuthenticated();
       performanceMonitor.startMonitoring();
-      const startTime = performance.now();
+      const startTime = getTimeMs();
       
       const { owner: ownerName, repo: repoName } = this.extractRepoInfo(url);
       
-      this.analysisProgress = {
-        totalFiles: 0,
-        analyzedFiles: 0,
-        currentPhase: 'fetching-repository',
-        estimatedTimeRemaining: 0,
-        status: 'in-progress',
-        errors: [],
-      };
+      this.analysisProgress = { ...defaultAnalysisProgress };
+      this.updateProgress(this.analysisProgress);
 
       // Fetch repository data
       const { data: repoData } = await workflowMonitor.executeWithRetry(
@@ -320,10 +339,6 @@ export class GitHubService {
         language: repoData.language,
         size: repoData.size,
       };
-
-      // Store metrics separately
-      const metrics = performanceMonitor.getMetrics();
-      const progress = { ...this.analysisProgress };
 
       this.updateProgress({
         currentPhase: 'analyzing-files',

@@ -1,5 +1,11 @@
 import { PerformanceMetrics, StageMetrics, ResourceMetrics, NetworkMetrics } from '../types/performance';
 
+// Helper function to get current time in milliseconds safely
+const getTimeMs = () => {
+  if (typeof window === 'undefined') return Date.now();
+  return performance?.now?.() ?? Date.now();
+};
+
 class PerformanceMonitor {
   private startTime: number = 0;
   private stages: Map<string, StageMetrics> = new Map();
@@ -9,12 +15,33 @@ class PerformanceMonitor {
     network: [],
   };
   private networkCalls: NetworkMetrics[] = [];
+  private static instance: PerformanceMonitor | null = null;
+
+  private constructor() {
+    // Initialize only on client side
+    if (typeof window === 'undefined') return;
+    this.startTime = getTimeMs();
+  }
+
+  public static getInstance(): PerformanceMonitor {
+    if (typeof window === 'undefined') {
+      // Return a dummy instance for SSR that does nothing
+      return new PerformanceMonitor();
+    }
+
+    if (!PerformanceMonitor.instance) {
+      PerformanceMonitor.instance = new PerformanceMonitor();
+    }
+    return PerformanceMonitor.instance;
+  }
 
   startMonitoring() {
-    this.startTime = performance.now();
+    if (typeof window === 'undefined') return;
+    this.startTime = getTimeMs();
   }
 
   recordStage(stageName: string, duration: number, status: 'success' | 'error' = 'success') {
+    if (typeof window === 'undefined') return;
     this.stages.set(stageName, {
       name: stageName,
       duration,
@@ -24,6 +51,7 @@ class PerformanceMonitor {
   }
 
   recordResourceUsage(type: keyof ResourceMetrics, value: number) {
+    if (typeof window === 'undefined') return;
     this.resources[type].push({
       value,
       timestamp: new Date().toISOString(),
@@ -31,6 +59,7 @@ class PerformanceMonitor {
   }
 
   recordNetworkCall(endpoint: string, duration: number, status: number) {
+    if (typeof window === 'undefined') return;
     this.networkCalls.push({
       endpoint,
       duration,
@@ -40,7 +69,18 @@ class PerformanceMonitor {
   }
 
   getMetrics(): PerformanceMetrics {
-    const totalDuration = performance.now() - this.startTime;
+    if (typeof window === 'undefined') {
+      return {
+        totalDuration: 0,
+        stages: [],
+        resources: { cpu: [], memory: [], network: [] },
+        networkCalls: [],
+        averages: { cpu: 0, memory: 0, network: 0 },
+        bottlenecks: [],
+      };
+    }
+
+    const totalDuration = getTimeMs() - this.startTime;
     const stageMetrics = Array.from(this.stages.values());
     
     const averages = {
@@ -101,4 +141,5 @@ class PerformanceMonitor {
   }
 }
 
-export const performanceMonitor = new PerformanceMonitor();
+// Export singleton instance
+export const performanceMonitor = PerformanceMonitor.getInstance();

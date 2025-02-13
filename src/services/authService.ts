@@ -3,33 +3,59 @@ import type { AuthState, User, Repository } from '@/types/auth';
 import { config } from '@/config/config';
 import type { SearchReposParameters } from '@/types/github';
 
+const getBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
+  if (typeof window !== 'undefined') return window.location.origin;
+  return 'http://localhost:3000';
+};
+
+const defaultAuthState: AuthState = {
+  isAuthenticated: false,
+  isLoading: true,
+  error: null,
+  user: null,
+};
+
 /**
  * Service for handling authentication state and making authenticated requests
  */
 export class AuthService {
-  private static instance: AuthService;
+  private static instance: AuthService | null = null;
   private authState: AuthState;
+  private initialized: boolean = false;
 
   private constructor() {
-    this.authState = {
-      isAuthenticated: false,
-      isLoading: true,
-      error: null,
-      user: null,
-    };
-    this.checkAuthStatus();
+    this.authState = { ...defaultAuthState };
   }
 
   public static getInstance(): AuthService {
+    if (typeof window === 'undefined') {
+      // Return a dummy instance for SSR that does nothing
+      const dummyInstance = new AuthService();
+      dummyInstance.authState = {
+        ...defaultAuthState,
+        isLoading: false,
+      };
+      return dummyInstance;
+    }
+
     if (!AuthService.instance) {
       AuthService.instance = new AuthService();
     }
     return AuthService.instance;
   }
 
+  private async initialize() {
+    if (this.initialized || typeof window === 'undefined') return;
+    this.initialized = true;
+    await this.checkAuthStatus();
+  }
+
   private async checkAuthStatus(): Promise<void> {
+    if (typeof window === 'undefined') return;
+
     try {
-      const response = await fetch('/api/auth/status');
+      const response = await fetch(`${getBaseUrl()}/api/auth/status`);
       const data = await response.json();
       
       this.authState = {
@@ -61,7 +87,8 @@ export class AuthService {
   }
 
   public async getCurrentUser(): Promise<User> {
-    const response = await fetch('/api/github/user');
+    await this.initialize();
+    const response = await fetch(`${getBaseUrl()}/api/github/user`);
     if (!response.ok) {
       throw new Error('Failed to fetch user data');
     }
@@ -94,6 +121,9 @@ export class AuthService {
   }
 
   public getAuthState(): AuthState {
+    if (typeof window !== 'undefined' && !this.initialized) {
+      this.initialize();
+    }
     return { ...this.authState };
   }
 
@@ -101,7 +131,8 @@ export class AuthService {
     path: string,
     options: RequestInit = {}
   ): Promise<Response> {
-    const response = await fetch(`/api/github${path}`, {
+    await this.initialize();
+    const response = await fetch(`${getBaseUrl()}/api/github${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -110,7 +141,6 @@ export class AuthService {
     });
 
     if (response.status === 401) {
-      // Session expired or invalid
       this.authState = {
         isAuthenticated: false,
         isLoading: false,
@@ -124,8 +154,9 @@ export class AuthService {
   }
 
   public async logout(): Promise<void> {
+    await this.initialize();
     try {
-      const response = await fetch('/api/auth/logout', {
+      const response = await fetch(`${getBaseUrl()}/api/auth/logout`, {
         method: 'POST',
       });
 

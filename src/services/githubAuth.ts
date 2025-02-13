@@ -1,11 +1,16 @@
 import { config } from '@/config/config';
 
 export class GitHubAuthService {
-  private static instance: GitHubAuthService;
+  private static instance: GitHubAuthService | null = null;
 
   private constructor() {}
 
   public static getInstance(): GitHubAuthService {
+    if (typeof window === 'undefined') {
+      // Return a dummy instance for SSR that does nothing
+      return new GitHubAuthService();
+    }
+
     if (!GitHubAuthService.instance) {
       GitHubAuthService.instance = new GitHubAuthService();
     }
@@ -13,6 +18,10 @@ export class GitHubAuthService {
   }
 
   public async initiateLogin(): Promise<string> {
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot initiate login during SSR');
+    }
+
     // Request a state token from the server
     const response = await fetch('/api/auth/state', {
       method: 'POST',
@@ -37,6 +46,10 @@ export class GitHubAuthService {
   }
 
   public async handleCallback(code: string, state: string): Promise<boolean> {
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot handle callback during SSR');
+    }
+
     const response = await fetch('/api/auth/callback', {
       method: 'POST',
       headers: {
@@ -56,6 +69,10 @@ export class GitHubAuthService {
   }
 
   public async logout(): Promise<void> {
+    if (typeof window === 'undefined') {
+      throw new Error('Cannot logout during SSR');
+    }
+
     const response = await fetch('/api/auth/logout', {
       method: 'POST',
       credentials: 'include',

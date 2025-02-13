@@ -1,6 +1,6 @@
 import CryptoJS from 'crypto-js';
 
-const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || 'default-secure-key-12345';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-secure-key-12345';
 
 export function encrypt(text: string): string {
   return CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();

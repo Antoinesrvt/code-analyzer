@@ -1,4 +1,4 @@
-import type { User } from '../../../src/types/auth';
+import type { User } from './auth';
 
 interface OAuthState {
   value: string;

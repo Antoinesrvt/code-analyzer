@@ -1,4 +1,4 @@
-import type { Repository } from '../../../src/types/auth';
+import type { Repository } from '../types/auth';
 import type { ListReposResponse } from '../types/github';
 
 export class RepositoryMapper {

@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { FileNode, Module, WorkflowNode, WorkflowEdge } from '@/types';
 import type { Repository } from '@/types/auth';
+import { AnalyzedRepo } from './useAnalyzedReposStore';
 
 interface AnalyzerState {
-  repository: Repository | null;
+  repository: AnalyzedRepo | null;
   files: FileNode[];
   modules: Module[];
   workflow: {
@@ -12,7 +13,7 @@ interface AnalyzerState {
   };
   loading: boolean;
   error: string | null;
-  setRepository: (repo: Repository) => void;
+  setRepository: (repo: AnalyzedRepo) => void;
   setFiles: (files: FileNode[]) => void;
   setModules: (modules: Module[]) => void;
   setWorkflow: (nodes: WorkflowNode[], edges: WorkflowEdge[]) => void;

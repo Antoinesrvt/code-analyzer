@@ -22,7 +22,7 @@ interface AnalyzedReposState {
 
 export const useAnalyzedReposStore = create<AnalyzedReposState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       analyzedRepos: [],
       addAnalyzedRepo: (repo) =>
         set((state) => ({

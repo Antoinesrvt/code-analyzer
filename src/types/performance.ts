@@ -24,14 +24,28 @@ export interface NetworkMetrics {
 }
 
 export interface PerformanceMetrics {
-  totalDuration: number;
-  stages: StageMetrics[];
-  resources: ResourceMetrics;
-  networkCalls: NetworkMetrics[];
-  averages: {
-    cpu: number;
-    memory: number;
-    network: number;
+  totalTime: number;
+  apiCalls: number;
+  memoryUsage: number;
+  timestamp?: Date;
+  operations?: {
+    [key: string]: {
+      startTime: number;
+      endTime?: number;
+      duration?: number;
+      status: 'pending' | 'success' | 'error';
+      error?: string;
+    };
   };
-  bottlenecks: string[];
 }
+
+export interface OperationMetrics {
+  operationId: string;
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  status: 'pending' | 'success' | 'error';
+  error?: string;
+}
+
+export type MetricsCallback = (metrics: PerformanceMetrics) => void;

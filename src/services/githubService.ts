@@ -1,6 +1,7 @@
 import { Octokit } from '@octokit/rest';
 import type { FileNode, Module, AnalysisProgress } from '@/types';
 import type { Repository, User } from '@/types/auth';
+import type { PerformanceMetrics } from '@/types/performance';
 import { performanceMonitor } from './performanceService';
 import { workflowMonitor } from './workflowMonitor';
 import { authService } from './authService';

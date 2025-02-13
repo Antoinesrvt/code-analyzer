@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { cookies } from 'next/headers';
+import { type NextApiRequest } from 'next';
+import { createHash, randomBytes } from 'crypto';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/access_token';
 const COOKIE_NAME = 'gh_session';

@@ -30,8 +30,8 @@ export async function GET() {
 
     // Create response with OAuth URL
     const params = new URLSearchParams({
-      client_id: process.env.GITHUB_CLIENT_ID!,
-      redirect_uri: process.env.GITHUB_REDIRECT_URI!,
+      client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
+      redirect_uri: process.env.GITHUB_REDIRECT_URI ?? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
       state,
       scope: 'repo read:user user:email',
     });

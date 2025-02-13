@@ -60,14 +60,18 @@ export async function POST(request: NextRequest) {
 
     // Exchange code for access token
     const params = {
-      client_id: process.env.GITHUB_CLIENT_ID!,
+      client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
       client_secret: process.env.GITHUB_CLIENT_SECRET!,
       code: String(code),
       state: String(state),
     } as const;
 
-    if (process.env.GITHUB_REDIRECT_URI) {
-      Object.assign(params, { redirect_uri: process.env.GITHUB_REDIRECT_URI });
+    if (process.env.NEXT_PUBLIC_GITHUB_REDIRECT_URI) {
+      Object.assign(params, { redirect_uri: process.env.NEXT_PUBLIC_GITHUB_REDIRECT_URI });
+    } else if (process.env.NEXT_PUBLIC_APP_URL) {
+      Object.assign(params, { redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` });
+    } else {
+      Object.assign(params, { redirect_uri: 'http://localhost:3000/auth/callback' });
     }
 
     const tokenResponse = await fetch(GITHUB_OAUTH_URL, {

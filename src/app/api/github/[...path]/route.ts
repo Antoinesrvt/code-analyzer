@@ -161,15 +161,15 @@ export const GET = withValidation(repoParamsSchema, async (data, request: NextRe
         },
       });
 
-      const response = await handleGitHubResponse(githubResponse);
-      
-      // Ensure we're wrapping the repositories array in the expected format
-      if (response.status === 200) {
-        const repositories = await response.json();
-        return createApiResponse({ repositories: repositories.data }, 200);
+      if (!githubResponse.ok) {
+        return handleGitHubResponse(githubResponse);
       }
+
+      const repositories = await githubResponse.json();
+      console.log('Raw GitHub response:', repositories); // Debug log
       
-      return response;
+      // Return repositories directly in the expected format
+      return createApiResponse({ repositories }, 200);
     } else {
       githubUrl = new URL(githubPath, GITHUB_API_URL);
       url.searchParams.forEach((value, key) => {

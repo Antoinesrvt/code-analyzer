@@ -54,7 +54,7 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
     const data = await response.json();
     console.log('Repository response:', data); // Debug log
 
-    // Handle the nested response format
+    // Extract repositories from the correct path in the response
     const repositories = data.data?.repositories || [];
     
     // Client-side filtering for search

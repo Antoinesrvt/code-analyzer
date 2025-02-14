@@ -29,12 +29,18 @@ class GitHubService {
   private static instance: GitHubService | null = null;
   private analysisProgress: AnalysisProgress;
   private initialized: boolean = false;
+  private currentProgressCallback: ((progress: AnalysisProgress) => void) | null = null;
 
   private constructor() {
     this.analysisProgress = { ...defaultAnalysisProgress };
     // Only initialize if we're on the client side
     if (typeof window !== 'undefined') {
-      this.initializeClient();
+      this.initializeClient().catch(error => {
+        console.error('Failed to initialize GitHub client:', error);
+        // Reset state on initialization error
+        this.initialized = false;
+        this.octokit = null;
+      });
     }
   }
 
@@ -57,6 +63,9 @@ class GitHubService {
     
     try {
       const response = await fetch('/api/auth/status');
+      if (!response.ok) {
+        throw new Error(`Auth status check failed: ${response.statusText}`);
+      }
       const data = await response.json();
       if (data.hasToken) {
         this.octokit = new Octokit({
@@ -70,15 +79,32 @@ class GitHubService {
     } catch (error) {
       console.error('Failed to initialize GitHub client:', error);
       this.initialized = false;
+      this.octokit = null;
+      throw error; // Re-throw to handle in constructor
     }
   }
 
   private updateProgress(update: Partial<AnalysisProgress>) {
-    if (typeof window === 'undefined') return;
-    
-    this.analysisProgress = { ...this.analysisProgress, ...update };
-    // Only update store on client side
-    updateAnalysisProgress(this.analysisProgress);
+    try {
+      this.analysisProgress = {
+        ...this.analysisProgress,
+        ...update,
+      };
+      // Use the onProgress callback instead of direct store access
+      if (this.currentProgressCallback) {
+        this.currentProgressCallback(this.analysisProgress);
+      }
+    } catch (error) {
+      console.error('Error updating progress:', error);
+      // If progress update fails, ensure we don't leave the analysis in a broken state
+      if (this.currentProgressCallback) {
+        this.currentProgressCallback({
+          ...defaultAnalysisProgress,
+          status: 'error',
+          errors: ['Failed to update analysis progress'],
+        });
+      }
+    }
   }
 
   private calculateEstimatedTime(processed: number, total: number, startTime: number): number {
@@ -339,10 +365,16 @@ class GitHubService {
     };
   }
 
-  public async analyzeRepository(url: string, onProgress?: (progress: AnalysisProgress) => void): Promise<AnalyzedRepo> {
+  public async analyzeRepository(
+    url: string,
+    onProgress?: (progress: AnalysisProgress) => void
+  ): Promise<AnalyzedRepo> {
     if (typeof window === 'undefined') {
       throw new Error('Cannot analyze repository during SSR');
     }
+
+    // Store the callback for use in updateProgress
+    this.currentProgressCallback = onProgress || null;
 
     const operationId = 'analyze-repository';
     workflowMonitor.startOperation(operationId);
@@ -488,6 +520,9 @@ class GitHubService {
 
       console.error('Failed to analyze repository:', error);
       throw new Error(errorMessage);
+    } finally {
+      // Clear the callback
+      this.currentProgressCallback = null;
     }
   }
 }

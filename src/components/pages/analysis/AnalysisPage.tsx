@@ -37,17 +37,19 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
   const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
   const router = useRouter();
   const store = useStore();
-  const { loading, error, analysisProgress, repository } = store();
+  const { loading, error, analysisProgress, repository, setLoading, setError, setAnalysisProgress, setRepository } = store();
 
   React.useEffect(() => {
     let mounted = true;
+    let analysisTimeout: NodeJS.Timeout;
+
     const startAnalysis = async () => {
       if (!mounted) return;
       
       try {
-        store().setLoading(true);
-        store().setError(null);
-        store().setAnalysisProgress({
+        setLoading(true);
+        setError(null);
+        setAnalysisProgress({
           currentPhase: 'initializing',
           totalFiles: 0,
           analyzedFiles: 0,
@@ -55,6 +57,15 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
           status: 'in-progress',
           errors: []
         });
+        
+        // Set a timeout to prevent infinite loading
+        analysisTimeout = setTimeout(() => {
+          if (mounted && loading) {
+            setError('Analysis timeout - please try again');
+            setLoading(false);
+            setAnalysisProgress(null);
+          }
+        }, 300000); // 5 minutes timeout
         
         // First, ensure we have the complete repository data
         const completeRepo = await githubService.getRepositoryData(owner, repo);
@@ -66,34 +77,40 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
           completeRepo.cloneUrl,
           (progress) => {
             if (!mounted) return;
-            store().setAnalysisProgress(progress);
+            setAnalysisProgress(progress);
             
             // Update loading state based on progress
             if (progress.status === 'complete') {
-              store().setLoading(false);
+              setLoading(false);
+              clearTimeout(analysisTimeout);
             } else if (progress.status === 'error') {
-              store().setError(progress.errors[0] || 'Analysis failed');
-              store().setLoading(false);
+              setError(progress.errors[0] || 'Analysis failed');
+              setLoading(false);
+              clearTimeout(analysisTimeout);
             }
           }
         );
 
         if (!mounted) return;
 
-        store().setRepository(analyzedRepo);
-        store().setAnalysisProgress(null); // Clear progress when done
+        setRepository(analyzedRepo);
+        setAnalysisProgress(null); // Clear progress when done
         toast.success('Analysis completed!', {
           description: `Successfully analyzed ${repo}`,
         });
       } catch (error) {
         if (!mounted) return;
         const message = error instanceof Error ? error.message : 'Failed to analyze repository';
-        store().setError(message);
-        store().setLoading(false);
-        store().setAnalysisProgress(null);
+        setError(message);
+        setLoading(false);
+        setAnalysisProgress(null);
         toast.error('Analysis failed', {
           description: message,
         });
+      } finally {
+        if (mounted) {
+          clearTimeout(analysisTimeout);
+        }
       }
     };
 
@@ -101,12 +118,13 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
 
     return () => {
       mounted = false;
+      clearTimeout(analysisTimeout);
       // Clean up store state when unmounting
-      store().setLoading(false);
-      store().setError(null);
-      store().setAnalysisProgress(null);
+      setLoading(false);
+      setError(null);
+      setAnalysisProgress(null);
     };
-  }, [owner, repo]);
+  }, [owner, repo, setLoading, setError, setAnalysisProgress, setRepository, loading]);
 
   if (error) {
     return (
@@ -115,7 +133,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
           router.push('/dashboard');
         }}
         onRetry={() => {
-          store().setError(null);
+          setError(null);
           router.refresh();
         }}
         error={error}

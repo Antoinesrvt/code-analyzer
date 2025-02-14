@@ -20,50 +20,86 @@ export function StoreInitializer({ children }: StoreInitializerProps) {
   const authStore = useAuthStore();
   const analyzedReposStore = useAnalyzedReposStore();
 
+  // Handle hydration
   useEffect(() => {
-    try {
-      // Initialize stores by accessing them
-      const storesInitialized = !!mainStore && !!authStore && !!analyzedReposStore;
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
 
-      // Log store initialization for debugging in production
-      if (process.env.NODE_ENV === 'production') {
-        console.debug('Store initialization:', {
-          storesInitialized,
-          timestamp: new Date().toISOString()
-        });
-
-        // Access store states safely
+    const initializeStores = async () => {
+      try {
+        // Initialize stores by accessing them
         const mainState = mainStore();
         const authState = authStore();
+        const analyzedReposState = analyzedReposStore();
 
-        // Log initial states
-        console.debug('Store states:', {
-          main: {
-            hasRepository: !!mainState.repository,
-            filesCount: mainState.files.length,
-            modulesCount: mainState.modules.length,
-            isLoading: mainState.loading,
-            hasError: !!mainState.error,
-          },
-          auth: {
-            isAuthenticated: authState.isAuthenticated,
-            hasUser: !!authState.user,
-            isLoading: authState.isLoading,
-            hasError: !!authState.error,
-          }
+        // Verify store states are accessible and have expected structure
+        if (!mainState || typeof mainState.loading !== 'boolean' || !('repository' in mainState)) {
+          throw new Error('Main store initialization failed: invalid state structure');
+        }
+
+        if (!authState || typeof authState.isAuthenticated !== 'boolean' || !('user' in authState)) {
+          throw new Error('Auth store initialization failed: invalid state structure');
+        }
+
+        if (!analyzedReposState || !Array.isArray(analyzedReposState.analyzedRepos)) {
+          throw new Error('Analyzed repos store initialization failed: invalid state structure');
+        }
+
+        // Log store initialization for debugging in production
+        if (process.env.NODE_ENV === 'production') {
+          console.debug('Store initialization:', {
+            timestamp: new Date().toISOString(),
+            stores: {
+              main: {
+                initialized: !!mainState,
+                hasRepository: !!mainState.repository,
+                isLoading: mainState.loading,
+                hasError: !!mainState.error,
+              },
+              auth: {
+                initialized: !!authState,
+                isAuthenticated: authState.isAuthenticated,
+                hasUser: !!authState.user,
+                isLoading: authState.isLoading,
+              },
+              analyzedRepos: {
+                initialized: !!analyzedReposState,
+                repoCount: analyzedReposState.analyzedRepos.length,
+              },
+            },
+          });
+        }
+
+        // Mark as hydrated after successful initialization
+        setIsHydrated(true);
+        setInitError(null);
+      } catch (error) {
+        console.error('Store initialization error:', error);
+        
+        if (retryCount < maxRetries) {
+          retryCount++;
+          console.log(`Retrying store initialization (attempt ${retryCount}/${maxRetries})...`);
+          setTimeout(initializeStores, retryDelay);
+          return;
+        }
+
+        const errorMessage = error instanceof Error ? error.message : 'Failed to initialize stores';
+        setInitError(new Error(`${errorMessage} (after ${maxRetries} retries)`));
+        
+        toast.error('Store Initialization Error', {
+          description: 'Failed to initialize application state. Please refresh the page.',
+          duration: 5000,
         });
       }
+    };
 
-      // Mark as hydrated after successful initialization
-      setIsHydrated(true);
-    } catch (error) {
-      console.error('Store initialization error:', error);
-      setInitError(error instanceof Error ? error : new Error('Failed to initialize stores'));
-      
-      toast.error('Store Initialization Error', {
-        description: 'Failed to initialize application state. Please refresh the page.',
-      });
-    }
+    initializeStores();
+
+    return () => {
+      setIsHydrated(false);
+      setInitError(null);
+    };
   }, [mainStore, authStore, analyzedReposStore]);
 
   // Show loading state

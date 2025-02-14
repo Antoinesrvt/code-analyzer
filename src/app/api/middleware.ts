@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { decryptSession } from './auth/[...nextauth]/route';
 
 const allowedOrigins = [
   'http://localhost:3000',
@@ -13,7 +14,7 @@ const publicPaths = [
   '/api/auth/logout'
 ];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // Get the origin from the request headers
   const origin = request.headers.get('origin');
   const requestPath = request.nextUrl.pathname;
@@ -61,17 +62,34 @@ export function middleware(request: NextRequest) {
     }
 
     try {
-      const sessionData = JSON.parse(session.value);
-      if (!sessionData.isAuthenticated) {
+      const sessionData = decryptSession(session.value);
+      const now = Date.now();
+      const sessionAge = now - sessionData.createdAt;
+      const maxAge = 7 * 24 * 60 * 60 * 1000; // 1 week in milliseconds
+
+      // Check if session has expired
+      if (sessionAge > maxAge) {
         return NextResponse.json(
           {
-            error: 'unauthorized',
-            error_description: 'Authentication required'
+            error: 'session_expired',
+            error_description: 'Session has expired'
           },
           { status: 401 }
         );
       }
-    } catch {
+
+      // Verify token is present
+      if (!sessionData.accessToken) {
+        return NextResponse.json(
+          {
+            error: 'invalid_session',
+            error_description: 'Invalid session format'
+          },
+          { status: 401 }
+        );
+      }
+    } catch (error) {
+      console.error('Session validation error:', error);
       return NextResponse.json(
         {
           error: 'invalid_session',

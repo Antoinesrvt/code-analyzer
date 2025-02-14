@@ -31,15 +31,27 @@ function createAuthStore(preloadedState: Partial<AuthStore> = {}) {
             user,
             isAuthenticated: !!user,
             error: null,
+            isLoading: false,
           }),
         setLoading: (isLoading) => set({ isLoading }),
-        setError: (error) => set({ error }),
-        logout: () =>
-          set({
-            isAuthenticated: false,
-            user: null,
-            error: null,
-          }),
+        setError: (error) => set({ error, isLoading: false }),
+        logout: async () => {
+          try {
+            await fetch('/api/auth/logout', {
+              method: 'POST',
+              credentials: 'include',
+            });
+          } catch (error) {
+            console.error('Logout error:', error);
+          } finally {
+            set({
+              isAuthenticated: false,
+              user: null,
+              error: null,
+              isLoading: false,
+            });
+          }
+        },
       }),
       {
         name: 'github-auth-storage',

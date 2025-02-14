@@ -31,7 +31,7 @@ function encryptSession(data: SessionData): string {
 }
 
 // Helper function to decrypt session data
-function decryptSession(encrypted: string): SessionData {
+export function decryptSession(encrypted: string): SessionData {
   const key = process.env.SESSION_SECRET!;
   const [ivHex, encryptedData, authTagHex] = encrypted.split(':');
   

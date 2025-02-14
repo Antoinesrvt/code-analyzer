@@ -111,7 +111,7 @@ export default function Home() {
           </div>
         </div>
       </header>
-
+    {isAuthenticated && 
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <ErrorBoundary>
           <AnimatePresence mode="wait">
@@ -150,6 +150,7 @@ export default function Home() {
           </AnimatePresence>
         </ErrorBoundary>
       </main>
+    }
     </div>
   );
 }

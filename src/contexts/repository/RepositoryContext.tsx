@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from 'react';
 import { toast } from 'sonner';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions } from '@tanstack/react-query';
 import type { Repository } from '@/types/auth';
 import type { FileNode, Module, AnalysisProgress, WorkflowNode, WorkflowEdge } from '@/types';
 import type { AnalysisPerformanceMetrics } from '@/types/performance';
@@ -42,24 +42,42 @@ interface RepositoryContextType extends RepositoryState {
   setWorkflow: (nodes: WorkflowNode[], edges: WorkflowEdge[]) => void;
   updateAnalysisProgress: (progress: AnalysisProgress | null) => void;
   clearAnalysis: () => void;
+  clearError: () => void;
 }
 
 const RepositoryContext = createContext<RepositoryContextType | null>(null);
 
-// API functions
+// Constants
+const STALE_TIME = 5 * 60 * 1000; // 5 minutes
+const RETRY_DELAY = 1000; // 1 second
+const MAX_RETRIES = 3;
+
+// API functions with better error handling
 async function fetchAnalyzedRepos() {
-  const response = await fetch('/api/analysis', { credentials: 'include' });
+  const response = await fetch('/api/analysis', { 
+    credentials: 'include',
+    headers: {
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    }
+  });
+
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error_description || error.error || 'Failed to fetch analyzed repositories');
   }
+
   return response.json();
 }
 
 async function startAnalysisRequest(owner: string, repo: string) {
   const response = await fetch('/api/analysis', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    },
     credentials: 'include',
     body: JSON.stringify({ owner, repo }),
   });
@@ -86,9 +104,30 @@ async function deleteAnalysisRequest(owner: string, repo: string) {
   return response.json();
 }
 
+async function fetchAnalysisProgress(owner: string, repo: string) {
+  const response = await fetch(
+    `/api/analysis/progress?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`,
+    { 
+      credentials: 'include',
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error_description || error.error || 'Failed to fetch analysis progress');
+  }
+
+  return response.json();
+}
+
 export function RepositoryProvider({ children }: { children: React.ReactNode }) {
   const { githubUser } = useAuth();
   const queryClient = useQueryClient();
+  const [error, setError] = useState<Error | null>(null);
   const [state, setState] = useState<RepositoryState>({
     selectedRepo: null,
     files: [],
@@ -99,22 +138,35 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
     error: null,
   });
 
+  // Query options for analyzed repositories
+  const reposQueryOptions: UseQueryOptions<AnalyzedRepo[], Error> = {
+    queryKey: ['analyzedRepos'],
+    queryFn: fetchAnalyzedRepos,
+    enabled: !!githubUser,
+    staleTime: STALE_TIME,
+    retry: (failureCount, error) => {
+      if (error.message.includes('401')) return false;
+      if (error.message.includes('403')) return false;
+      return failureCount < MAX_RETRIES;
+    },
+    retryDelay: RETRY_DELAY,
+  };
+
   // Fetch analyzed repositories
   const { 
     data: analyzedRepos = [], 
     isLoading: isReposLoading,
     error: reposError
-  } = useQuery({
-    queryKey: ['analyzedRepos'],
-    queryFn: fetchAnalyzedRepos,
-    enabled: !!githubUser,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
+  } = useQuery<AnalyzedRepo[], Error>(reposQueryOptions);
 
-  // Start analysis mutation
+  // Start analysis mutation with better error handling
   const startAnalysisMutation = useMutation({
     mutationFn: ({ owner, repo }: { owner: string; repo: string }) => 
       startAnalysisRequest(owner, repo),
+    onMutate: () => {
+      setError(null);
+      setState(prev => ({ ...prev, isLoading: true }));
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['analyzedRepos'] });
       setState(prev => ({ 
@@ -124,25 +176,45 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
         error: null
       }));
     },
-    onError: (error) => {
-      setState(prev => ({ ...prev, error: error as Error }));
+    onError: (error: Error) => {
+      setState(prev => ({ 
+        ...prev, 
+        error,
+        isLoading: false 
+      }));
+      setError(error);
       toast.error('Failed to start analysis', {
-        description: error instanceof Error ? error.message : 'Unknown error occurred'
+        description: error.message
       });
     },
   });
 
-  // Delete analysis mutation
+  // Delete analysis mutation with better error handling
   const deleteAnalysisMutation = useMutation({
     mutationFn: ({ owner, repo }: { owner: string; repo: string }) => 
       deleteAnalysisRequest(owner, repo),
+    onMutate: () => {
+      setError(null);
+      setState(prev => ({ ...prev, isLoading: true }));
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analyzedRepos'] });
-      setState(prev => ({ ...prev, selectedRepo: null }));
+      setState(prev => ({ 
+        ...prev, 
+        selectedRepo: null,
+        isLoading: false,
+        error: null
+      }));
     },
-    onError: (error) => {
+    onError: (error: Error) => {
+      setState(prev => ({ 
+        ...prev, 
+        error,
+        isLoading: false 
+      }));
+      setError(error);
       toast.error('Failed to delete analysis', {
-        description: error instanceof Error ? error.message : 'Unknown error occurred'
+        description: error.message
       });
     },
   });
@@ -152,7 +224,7 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
     setState(prev => ({
       ...prev,
       isLoading: isReposLoading || startAnalysisMutation.isPending || deleteAnalysisMutation.isPending,
-      error: reposError as Error || startAnalysisMutation.error as Error || deleteAnalysisMutation.error as Error || null
+      error: reposError || startAnalysisMutation.error || deleteAnalysisMutation.error || null
     }));
   }, [isReposLoading, startAnalysisMutation.isPending, deleteAnalysisMutation.isPending, reposError, startAnalysisMutation.error, deleteAnalysisMutation.error]);
 
@@ -184,18 +256,36 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
-  const selectRepository = async (repo: Repository) => {
-    const existingAnalysis = analyzedRepos.find(
-      (r: AnalyzedRepo) => r.id === repo.id
-    );
+  const clearError = () => {
+    setError(null);
+    setState(prev => ({ ...prev, error: null }));
+  };
 
-    if (existingAnalysis) {
-      setState(prev => ({ ...prev, selectedRepo: existingAnalysis }));
-    } else {
-      await startAnalysisMutation.mutateAsync({
-        owner: repo.owner.login,
-        repo: repo.name,
-      });
+  const selectRepository = async (repo: Repository) => {
+    try {
+      const existingAnalysis = analyzedRepos.find(
+        (r: AnalyzedRepo) => r.id === repo.id
+      );
+
+      if (existingAnalysis) {
+        setState(prev => ({ 
+          ...prev, 
+          selectedRepo: existingAnalysis,
+          error: null
+        }));
+      } else {
+        await startAnalysisMutation.mutateAsync({
+          owner: repo.owner.login,
+          repo: repo.name,
+        });
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        setError(error);
+        toast.error('Failed to select repository', {
+          description: error.message
+        });
+      }
     }
   };
 
@@ -213,21 +303,17 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
 
   const getAnalysisProgress = async (owner: string, repo: string) => {
     try {
-      const response = await fetch(
-        `/api/analysis/progress?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`,
-        { credentials: 'include' }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error_description || error.error || 'Failed to fetch analysis progress');
-      }
-
-      const progress = await response.json();
+      const progress = await fetchAnalysisProgress(owner, repo);
       updateAnalysisProgress(progress);
       return progress;
     } catch (error) {
       console.error('Failed to fetch analysis progress:', error);
+      if (error instanceof Error) {
+        setError(error);
+        toast.error('Failed to fetch analysis progress', {
+          description: error.message
+        });
+      }
       return null;
     }
   };
@@ -247,6 +333,7 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
         setWorkflow,
         updateAnalysisProgress,
         clearAnalysis,
+        clearError,
       }}
     >
       {children}

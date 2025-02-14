@@ -52,20 +52,41 @@ export function AnalysisPage({ repository, onClose }: AnalysisPageProps) {
   React.useEffect(() => {
     const startAnalysis = async () => {
       try {
+        store().setLoading(true);
+        store().setError(null);
+        
         // First, ensure we have the complete repository data
         const completeRepo = await githubService.getRepositoryData(
           repository.owner.login,
           repository.name
         );
 
-        const analyzedRepo = await githubService.analyzeRepository(completeRepo.cloneUrl);
+        // Start the analysis with progress updates
+        const analyzedRepo = await githubService.analyzeRepository(
+          completeRepo.cloneUrl,
+          (progress) => {
+            store().setAnalysisProgress(progress);
+            
+            // Update loading state based on progress
+            if (progress.status === 'complete') {
+              store().setLoading(false);
+            } else if (progress.status === 'error') {
+              store().setError(progress.errors[0] || 'Analysis failed');
+              store().setLoading(false);
+            }
+          }
+        );
+
         store().setRepository(analyzedRepo);
+        store().setAnalysisProgress(null); // Clear progress when done
         toast.success('Analysis completed!', {
           description: `Successfully analyzed ${repository.name}`,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to analyze repository';
         store().setError(message);
+        store().setLoading(false);
+        store().setAnalysisProgress(null);
         toast.error('Analysis failed', {
           description: message,
         });

@@ -123,8 +123,12 @@ class GitHubService {
         throw new Error('Invalid repository path');
       }
 
+      // Update total files count
+      const currentTotal = this.analysisProgress.totalFiles;
       this.updateProgress({
-        totalFiles: this.analysisProgress.totalFiles + data.length,
+        totalFiles: currentTotal + data.length,
+        currentPhase: 'analyzing-files',
+        status: 'in-progress',
       });
 
       const files: FileNode[] = [];
@@ -147,6 +151,12 @@ class GitHubService {
               };
 
               if (item.type === 'dir') {
+                // Update progress to show we're processing a directory
+                this.updateProgress({
+                  currentPhase: 'analyzing-files',
+                  status: 'in-progress',
+                });
+
                 const subFilesGenerator = this.getFilesProgressively(owner, repo, item.path);
                 for await (const subFiles of subFilesGenerator) {
                   fileNode.children = subFiles;
@@ -154,6 +164,10 @@ class GitHubService {
                 }
               } else {
                 fileNode.analysisStatus = 'complete';
+                // Update analyzed files count
+                this.updateProgress({
+                  analyzedFiles: this.analysisProgress.analyzedFiles + 1,
+                });
               }
 
               return fileNode;
@@ -338,10 +352,22 @@ class GitHubService {
       performanceMonitor.startMonitoring();
       const startTime = getTimeMs();
       
+      // Initialize progress
+      this.analysisProgress = { ...defaultAnalysisProgress };
+      this.updateProgress({
+        currentPhase: 'initializing',
+        status: 'in-progress',
+      });
+      if (onProgress) onProgress(this.analysisProgress);
+
       const { owner: ownerName, repo: repoName } = this.extractRepoInfo(url);
       
-      this.analysisProgress = { ...defaultAnalysisProgress };
-      this.updateProgress(this.analysisProgress);
+      // Update progress for repository fetching
+      this.updateProgress({
+        currentPhase: 'fetching-repository',
+        status: 'in-progress',
+      });
+      if (onProgress) onProgress(this.analysisProgress);
 
       // Fetch repository data
       const { data: repoData } = await workflowMonitor.executeWithRetry(
@@ -389,10 +415,14 @@ class GitHubService {
         size: repoData.size,
       };
 
+      // Update progress for file analysis
       this.updateProgress({
         currentPhase: 'analyzing-files',
         status: 'in-progress',
+        totalFiles: 0, // Will be updated as we discover files
+        analyzedFiles: 0,
       });
+      if (onProgress) onProgress(this.analysisProgress);
 
       const fileAnalysisStream = this.getFilesProgressively(ownerName, repoName);
       const modules: Module[] = [];
@@ -401,6 +431,7 @@ class GitHubService {
       for await (const batch of fileAnalysisStream) {
         processedFiles = [...processedFiles, ...batch];
         
+        // Update progress with file analysis status
         this.updateProgress({
           analyzedFiles: processedFiles.length,
           estimatedTimeRemaining: this.calculateEstimatedTime(
@@ -409,20 +440,21 @@ class GitHubService {
             startTime
           ),
         });
+        if (onProgress) onProgress(this.analysisProgress);
 
         const newModules = await this.analyzeModulesProgressively(batch);
         modules.push(...newModules);
-        
-        if (onProgress) {
-          onProgress(this.analysisProgress);
-        }
       }
 
+      // Update progress for completion
       this.updateProgress({
         currentPhase: 'completed',
         status: 'complete',
         estimatedTimeRemaining: 0,
+        analyzedFiles: processedFiles.length,
+        totalFiles: processedFiles.length,
       });
+      if (onProgress) onProgress(this.analysisProgress);
 
       workflowMonitor.endOperation(operationId, 'success');
       workflowMonitor.logMetrics();
@@ -446,11 +478,13 @@ class GitHubService {
         ? error.message 
         : 'Unknown error occurred while analyzing repository';
 
+      // Update progress for error state
       this.updateProgress({
         status: 'error',
         currentPhase: 'error',
         errors: [...this.analysisProgress.errors, errorMessage],
       });
+      if (onProgress) onProgress(this.analysisProgress);
 
       console.error('Failed to analyze repository:', error);
       throw new Error(errorMessage);

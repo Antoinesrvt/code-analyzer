@@ -1,122 +1,121 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { differentialService } from '@/services/analysis/differentialService';
 import { Analysis } from '@/models/Analysis';
+import { 
+  createApiResponse, 
+  createErrorResponse, 
+  createUnauthorizedResponse,
+  ApiError 
+} from '../../utils/apiResponse';
+import { withValidation } from '../../utils/validateRequest';
 
-export async function POST(request: NextRequest) {
+// Validation schemas
+const createDiffSchema = z.object({
+  owner: z.string().min(1, 'Owner is required'),
+  repo: z.string().min(1, 'Repository name is required'),
+  currentCommit: z.string().min(1, 'Current commit hash is required'),
+  previousCommit: z.string().min(1, 'Previous commit hash is required'),
+});
+
+const getDiffSchema = z.object({
+  owner: z.string().min(1, 'Owner is required'),
+  repo: z.string().min(1, 'Repository name is required'),
+  commit: z.string().min(1, 'Commit hash is required'),
+});
+
+export const POST = withValidation(createDiffSchema, async (data, request: NextRequest) => {
   try {
-    const body = await request.json();
-    const { owner, repo, currentCommit, previousCommit } = body;
-
-    if (!owner || !repo || !currentCommit || !previousCommit) {
-      return NextResponse.json(
-        { error: 'Missing required parameters' },
-        { status: 400 }
-      );
-    }
-
     // Get the existing analysis or create a new one
     const analysis = await Analysis.findOne({
-      'repository.owner.login': owner,
-      'repository.name': repo
+      'repository.owner.login': data.owner,
+      'repository.name': data.repo
     });
 
     if (!analysis) {
-      return NextResponse.json(
-        { error: 'Repository analysis not found' },
-        { status: 404 }
-      );
+      throw new ApiError('not_found', 'Repository analysis not found', 404);
     }
 
     // Check user plan limits
     if (analysis.historicalAnalyses.length >= analysis.retentionPolicy.maxHistoryCount) {
-      return NextResponse.json(
-        { 
-          error: 'Historical analysis limit reached',
+      throw new ApiError(
+        'plan_limit_exceeded',
+        'Historical analysis limit reached',
+        403,
+        {
           plan: analysis.userPlan,
           limit: analysis.retentionPolicy.maxHistoryCount
-        },
-        { status: 403 }
+        }
       );
     }
 
     // Perform differential analysis
     const differentialAnalysis = await differentialService.analyzeDifferential(
-      owner,
-      repo,
-      currentCommit,
-      previousCommit
+      data.owner,
+      data.repo,
+      data.currentCommit,
+      data.previousCommit
     );
 
     // Update the analysis with the new differential data
     analysis.historicalAnalyses.push(differentialAnalysis);
     await analysis.pruneHistory();
 
-    return NextResponse.json(differentialAnalysis);
+    return createApiResponse(differentialAnalysis);
   } catch (error) {
     console.error('Differential analysis error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to perform differential analysis',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError(
+        'differential_analysis_failed',
+        'Failed to perform differential analysis',
+        500,
+        { details: error instanceof Error ? error.message : 'Unknown error' }
+      )
     );
   }
-}
+});
 
-export async function GET(request: NextRequest) {
+export const GET = withValidation(getDiffSchema, async (data, request: NextRequest) => {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const owner = searchParams.get('owner');
-    const repo = searchParams.get('repo');
-    const commitHash = searchParams.get('commit');
-
-    if (!owner || !repo || !commitHash) {
-      return NextResponse.json(
-        { error: 'Missing required parameters' },
-        { status: 400 }
-      );
-    }
-
     const analysis = await Analysis.findOne({
-      'repository.owner.login': owner,
-      'repository.name': repo
+      'repository.owner.login': data.owner,
+      'repository.name': data.repo
     });
 
     if (!analysis) {
-      return NextResponse.json(
-        { error: 'Repository analysis not found' },
-        { status: 404 }
-      );
+      throw new ApiError('not_found', 'Repository analysis not found', 404);
     }
 
-    const historicalAnalysis = await analysis.getHistoricalAnalysis(commitHash);
+    const historicalAnalysis = await analysis.getHistoricalAnalysis(data.commit);
     
     if (!historicalAnalysis) {
-      return NextResponse.json(
-        { error: 'Historical analysis not found for this commit' },
-        { status: 404 }
-      );
+      throw new ApiError('not_found', 'Historical analysis not found for this commit', 404);
     }
 
-    return NextResponse.json(historicalAnalysis);
+    return createApiResponse(historicalAnalysis);
   } catch (error) {
     console.error('Failed to fetch historical analysis:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch historical analysis' },
-      { status: 500 }
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError(
+        'fetch_failed',
+        'Failed to fetch historical analysis',
+        500
+      )
     );
   }
-}
+});
 
 // OPTIONS handler for CORS
 export async function OPTIONS() {
-  return new NextResponse(null, {
+  return new Response(null, {
     status: 204,
     headers: {
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
+      'Access-Control-Allow-Headers': [
+        'Content-Type',
+        'Authorization',
+      ].join(', '),
+      'Access-Control-Max-Age': '86400', // 24 hours cache for preflight requests
     },
   });
 } 

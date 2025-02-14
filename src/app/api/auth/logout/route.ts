@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { createApiResponse, createErrorResponse, ApiError } from '../../utils/apiResponse';
 
 const SESSION_COOKIE = 'gh_session';
 
 export async function POST() {
   try {
     // Create response with success status
-    const response = NextResponse.json({ success: true });
+    const response = createApiResponse({ success: true });
 
     // Clear session cookie
     response.cookies.set(SESSION_COOKIE, '', {
@@ -19,47 +19,23 @@ export async function POST() {
     return response;
   } catch (error) {
     console.error('Logout error:', error);
-    return NextResponse.json(
-      {
-        error: 'server_error',
-        error_description: error instanceof Error ? error.message : 'Failed to logout'
-      },
-      { status: 500 }
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError('server_error', 'Failed to logout', 500)
     );
   }
 }
 
 // OPTIONS handler for CORS
-export async function OPTIONS(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://code-analyzer-five.vercel.app'
-  ];
-
-  // Only set CORS headers if origin is allowed
-  if (origin && allowedOrigins.includes(origin)) {
-    return new NextResponse(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': [
-          'X-CSRF-Token',
-          'X-Requested-With',
-          'Accept',
-          'Accept-Version',
-          'Content-Length',
-          'Content-MD5',
-          'Content-Type',
-          'Date',
-          'X-Api-Version'
-        ].join(', ')
-      }
-    });
-  }
-
-  return new NextResponse(null, { status: 200 });
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': [
+        'Content-Type',
+        'Authorization',
+      ].join(', '),
+      'Access-Control-Max-Age': '86400', // 24 hours cache for preflight requests
+    },
+  });
 } 

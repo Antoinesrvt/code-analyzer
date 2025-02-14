@@ -1,54 +1,61 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { databaseService } from '@/services/database/databaseService';
 import { decryptSession } from '@/app/api/auth/[...nextauth]/route';
 import { UserPlan } from '@/models/Analysis';
+import { withValidation } from '../utils/validateRequest';
+import { 
+  createApiResponse, 
+  createErrorResponse, 
+  createUnauthorizedResponse,
+  ApiError 
+} from '../utils/apiResponse';
 
-export async function GET(request: NextRequest) {
+// Validation schemas
+const getAnalysisSchema = z.object({
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().optional().default(10),
+  status: z.string().optional(),
+});
+
+const createAnalysisSchema = z.object({
+  owner: z.string().min(1, 'Owner is required'),
+  repo: z.string().min(1, 'Repository name is required'),
+});
+
+const deleteAnalysisSchema = z.object({
+  repositoryId: z.coerce.number().int().positive('Repository ID is required'),
+});
+
+export const GET = withValidation(getAnalysisSchema, async (data, request: NextRequest) => {
   try {
     const sessionCookie = request.cookies.get('gh_session');
     if (!sessionCookie?.value) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return createUnauthorizedResponse();
     }
 
     const session = decryptSession(sessionCookie.value);
-    const searchParams = request.nextUrl.searchParams;
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const status = searchParams.get('status') || undefined;
-
-    const result = await databaseService.getUserAnalyses(session.githubId, page, limit, status);
-    return NextResponse.json(result);
+    const result = await databaseService.getUserAnalyses(
+      session.githubId,
+      data.page,
+      data.limit,
+      data.status
+    );
+    
+    return createApiResponse(result);
   } catch (error) {
     console.error('Failed to fetch analyses:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch analyses' },
-      { status: 500 }
+    return createErrorResponse(
+      new ApiError('fetch_failed', 'Failed to fetch analyses')
     );
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withValidation(createAnalysisSchema, async (data, request: NextRequest) => {
   try {
-    const body = await request.json();
-    const { owner, repo } = body;
-
-    if (!owner || !repo) {
-      return NextResponse.json(
-        { error: 'Owner and repository name are required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify user session
     const sessionCookie = request.cookies.get('gh_session');
     if (!sessionCookie?.value) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return createUnauthorizedResponse();
     }
 
     const session = decryptSession(sessionCookie.value);
@@ -56,78 +63,61 @@ export async function POST(request: NextRequest) {
     // Check for existing analysis
     const existingAnalysis = await databaseService.getUserAnalysis(
       session.githubId,
-      owner,
-      repo
+      data.owner,
+      data.repo
     );
 
     if (existingAnalysis && !existingAnalysis.isExpired()) {
-      return NextResponse.json(existingAnalysis);
+      return createApiResponse(existingAnalysis);
     }
 
     // Create new analysis
     const analysis = await databaseService.createAnalysis({
       githubId: session.githubId,
-      owner,
-      repo
+      owner: data.owner,
+      repo: data.repo
     });
 
-    return NextResponse.json(analysis);
+    return createApiResponse(analysis, 201);
   } catch (error) {
     console.error('Failed to create analysis:', error);
-    return NextResponse.json(
-      { error: 'Failed to create analysis' },
-      { status: 500 }
+    return createErrorResponse(
+      new ApiError('creation_failed', 'Failed to create analysis')
     );
   }
-}
+});
 
-export async function DELETE(request: NextRequest) {
+export const DELETE = withValidation(deleteAnalysisSchema, async (data, request: NextRequest) => {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const repositoryId = searchParams.get('repositoryId');
-
-    if (!repositoryId) {
-      return NextResponse.json(
-        { error: 'Repository ID is required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify user session
     const sessionCookie = request.cookies.get('gh_session');
     if (!sessionCookie?.value) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return createUnauthorizedResponse();
     }
 
-    const success = await databaseService.deleteAnalysis(parseInt(repositoryId));
+    const success = await databaseService.deleteAnalysis(data.repositoryId);
     if (!success) {
-      return NextResponse.json(
-        { error: 'Analysis not found' },
-        { status: 404 }
+      return createErrorResponse(
+        new ApiError('not_found', 'Analysis not found', 404)
       );
     }
 
-    return NextResponse.json({ success: true });
+    return createApiResponse({ success: true });
   } catch (error) {
     console.error('Failed to delete analysis:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete analysis' },
-      { status: 500 }
+    return createErrorResponse(
+      new ApiError('deletion_failed', 'Failed to delete analysis')
     );
   }
-}
+});
 
 // OPTIONS handler for CORS
 export async function OPTIONS() {
-  return new NextResponse(null, {
+  return new Response(null, {
     status: 204,
     headers: {
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
+      'Access-Control-Max-Age': '86400', // 24 hours cache for preflight requests
     },
   });
 } 

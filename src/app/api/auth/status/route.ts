@@ -1,20 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { decryptSession } from '../[...nextauth]/route';
 import { userService } from '@/services/database/userService';
+import { 
+  createApiResponse, 
+  createErrorResponse, 
+  createTimeoutResponse, 
+  createUnauthorizedResponse 
+} from '../../utils/apiResponse';
 
 const SESSION_COOKIE = 'gh_session';
+const GITHUB_API_TIMEOUT = 5000; // 5 seconds
 
 export async function GET(request: NextRequest) {
   try {
     const sessionCookie = request.cookies.get(SESSION_COOKIE);
 
     if (!sessionCookie?.value) {
-      return NextResponse.json({
+      return createApiResponse({
         isAuthenticated: false,
         user: null,
         dbUser: null,
         hasToken: false,
-        timestamp: Date.now()
       });
     }
 
@@ -23,28 +29,24 @@ export async function GET(request: NextRequest) {
       
       // Get user data from GitHub with timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT);
 
       try {
         const githubResponse = await fetch('https://api.github.com/user', {
           headers: {
             'Authorization': `Bearer ${session.accessToken}`,
             'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'GitHub-Code-Analyzer',
           },
-          signal: controller.signal
+          signal: controller.signal,
+          cache: 'no-store', // Disable caching for this request
         });
 
         clearTimeout(timeoutId);
 
         if (!githubResponse.ok) {
           console.error('Failed to fetch user data:', await githubResponse.text());
-          return NextResponse.json({
-            isAuthenticated: false,
-            user: null,
-            dbUser: null,
-            hasToken: false,
-            timestamp: Date.now()
-          });
+          return createUnauthorizedResponse('GitHub authentication failed');
         }
 
         const githubData = await githubResponse.json();
@@ -64,10 +66,11 @@ export async function GET(request: NextRequest) {
           dbUser = await userService.findOrCreateUser(githubUser);
         } catch (dbError) {
           console.error('Database error:', dbError);
-          // Continue without database user
+          // Continue without database user, but log the error
+          console.error('Failed to get/create database user:', dbError);
         }
 
-        return NextResponse.json({
+        return createApiResponse({
           isAuthenticated: true,
           user: githubUser,
           dbUser: dbUser ? {
@@ -82,77 +85,36 @@ export async function GET(request: NextRequest) {
             updatedAt: dbUser.updatedAt,
           } : null,
           hasToken: true,
-          timestamp: Date.now()
         });
       } catch (fetchError) {
         clearTimeout(timeoutId);
         if (fetchError.name === 'AbortError') {
           console.error('GitHub API request timed out');
-          return NextResponse.json({
-            isAuthenticated: false,
-            user: null,
-            dbUser: null,
-            hasToken: false,
-            error: 'timeout',
-            timestamp: Date.now()
-          });
+          return createTimeoutResponse();
         }
         throw fetchError;
       }
     } catch (decryptError) {
       console.error('Session decryption error:', decryptError);
-      return NextResponse.json({
-        isAuthenticated: false,
-        user: null,
-        dbUser: null,
-        hasToken: false,
-        timestamp: Date.now()
-      });
+      return createUnauthorizedResponse('Invalid session');
     }
   } catch (error) {
     console.error('Status check error:', error);
-    return NextResponse.json(
-      {
-        error: 'server_error',
-        error_description: error instanceof Error ? error.message : 'Failed to check authentication status',
-        timestamp: Date.now()
-      },
-      { status: 500 }
-    );
+    return createErrorResponse(error);
   }
 }
 
 // OPTIONS handler for CORS
-export async function OPTIONS(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://code-analyzer-five.vercel.app'
-  ];
-
-  // Only set CORS headers if origin is allowed
-  if (origin && allowedOrigins.includes(origin)) {
-    return new NextResponse(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': [
-          'X-CSRF-Token',
-          'X-Requested-With',
-          'Accept',
-          'Accept-Version',
-          'Content-Length',
-          'Content-MD5',
-          'Content-Type',
-          'Date',
-          'X-Api-Version'
-        ].join(', ')
-      }
-    });
-  }
-
-  return new NextResponse(null, { status: 200 });
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': [
+        'Content-Type',
+        'Authorization',
+      ].join(', '),
+      'Access-Control-Max-Age': '86400', // 24 hours cache for preflight requests
+    },
+  });
 } 

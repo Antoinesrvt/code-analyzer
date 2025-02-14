@@ -1,6 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'crypto';
+import { z } from 'zod';
 import type { SessionData, AuthResponse } from '@/types/auth';
+import { 
+  createApiResponse, 
+  createErrorResponse, 
+  ApiError 
+} from '../../utils/apiResponse';
+import { withValidation } from '../../utils/validateRequest';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/access_token';
 const COOKIE_NAME = 'gh_session';
@@ -13,14 +20,20 @@ interface GitHubTokenResponse {
   scope: string;
 }
 
+// Validation schema for callback
+const callbackSchema = z.object({
+  code: z.string().min(1, 'Code is required'),
+  state: z.string().min(1, 'State is required'),
+});
+
 // Helper function to validate and derive encryption key
 function deriveKey(secret: string): Buffer {
   if (!secret || typeof secret !== 'string') {
-    throw new Error('SESSION_SECRET environment variable must be set');
+    throw new ApiError('config_error', 'SESSION_SECRET environment variable must be set', 500);
   }
   
   if (secret.length < 64) { // At least 32 bytes in hex (64 characters)
-    throw new Error('SESSION_SECRET must be at least 64 characters long (32 bytes in hex)');
+    throw new ApiError('config_error', 'SESSION_SECRET must be at least 64 characters long (32 bytes in hex)', 500);
   }
 
   try {
@@ -28,7 +41,7 @@ function deriveKey(secret: string): Buffer {
     return scryptSync(secret, SALT, ENCRYPTION_KEY_LENGTH);
   } catch (error) {
     console.error('Key derivation error:', error);
-    throw new Error('Failed to derive encryption key. Check SESSION_SECRET format.');
+    throw new ApiError('encryption_error', 'Failed to derive encryption key. Check SESSION_SECRET format.', 500);
   }
 }
 
@@ -46,7 +59,12 @@ export function encryptSession(data: SessionData): string {
     return `${iv.toString('hex')}:${encrypted}:${authTag.toString('hex')}`;
   } catch (error) {
     console.error('Encryption error:', error);
-    throw new Error('Failed to encrypt session data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    throw new ApiError(
+      'encryption_error',
+      'Failed to encrypt session data',
+      500,
+      { details: error instanceof Error ? error.message : 'Unknown error' }
+    );
   }
 }
 
@@ -57,7 +75,7 @@ export function decryptSession(encrypted: string): SessionData {
     const [ivHex, encryptedData, authTagHex] = encrypted.split(':');
     
     if (!ivHex || !encryptedData || !authTagHex) {
-      throw new Error('Invalid encrypted data format');
+      throw new ApiError('invalid_format', 'Invalid encrypted data format', 400);
     }
     
     const iv = Buffer.from(ivHex, 'hex');
@@ -70,34 +88,32 @@ export function decryptSession(encrypted: string): SessionData {
     
     const parsed = JSON.parse(decrypted);
     if (!parsed || typeof parsed !== 'object') {
-      throw new Error('Invalid session data format');
+      throw new ApiError('invalid_format', 'Invalid session data format', 400);
     }
     
     return parsed as SessionData;
   } catch (error) {
     console.error('Decryption error:', error);
-    throw new Error('Failed to decrypt session data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new ApiError(
+      'decryption_error',
+      'Failed to decrypt session data',
+      500,
+      { details: error instanceof Error ? error.message : 'Unknown error' }
+    );
   }
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withValidation(callbackSchema, async (data, request: NextRequest) => {
   try {
-    const body = await request.json();
-    const { code, state } = body;
-
-    if (!code || !state) {
-      return NextResponse.json(
-        { error: 'Missing code or state parameter' },
-        { status: 400 }
-      );
-    }
-
     // Exchange code for access token
     const params = {
       client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
       client_secret: process.env.GITHUB_CLIENT_SECRET!,
-      code: String(code),
-      state: String(state),
+      code: data.code,
+      state: data.state,
     } as const;
 
     if (process.env.NEXT_PUBLIC_GITHUB_REDIRECT_URI) {
@@ -119,36 +135,34 @@ export async function POST(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       const error = await tokenResponse.json();
-      return NextResponse.json(
-        { error: error.error || 'Failed to exchange code' },
-        { status: 400 }
+      throw new ApiError(
+        'token_exchange_failed',
+        error.error || 'Failed to exchange code',
+        400
       );
     }
 
-    const data: GitHubTokenResponse = await tokenResponse.json();
+    const tokenData: GitHubTokenResponse = await tokenResponse.json();
     
     // Immediately fetch user data
     const githubResponse = await fetch('https://api.github.com/user', {
       headers: {
-        'Authorization': `Bearer ${data.access_token}`,
+        'Authorization': `Bearer ${tokenData.access_token}`,
         'Accept': 'application/vnd.github.v3+json',
       },
     });
 
     if (!githubResponse.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch user data' },
-        { status: 400 }
-      );
+      throw new ApiError('user_data_failed', 'Failed to fetch user data', 400);
     }
 
     const userData = await githubResponse.json();
     
     // Create session
     const session = {
-      accessToken: data.access_token,
-      tokenType: data.token_type,
-      scope: data.scope,
+      accessToken: tokenData.access_token,
+      tokenType: tokenData.token_type,
+      scope: tokenData.scope,
       createdAt: Date.now(),
       githubId: userData.id,
     };
@@ -156,8 +170,8 @@ export async function POST(request: NextRequest) {
     // Encrypt session
     const encryptedSession = encryptSession(session);
 
-    // Set cookie and return user data
-    const response = NextResponse.json({
+    // Create response with user data
+    const response = createApiResponse({
       success: true,
       user: {
         id: userData.id,
@@ -170,6 +184,7 @@ export async function POST(request: NextRequest) {
       }
     });
     
+    // Set cookie
     response.cookies.set(COOKIE_NAME, encryptedSession, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -180,19 +195,18 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('Auth error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError('server_error', 'Internal server error', 500)
     );
   }
-}
+});
 
 export async function GET(request: NextRequest) {
   try {
     const sessionCookie = request.cookies.get(COOKIE_NAME);
     
     if (!sessionCookie) {
-      return NextResponse.json({ isAuthenticated: false });
+      return createApiResponse({ isAuthenticated: false });
     }
 
     const session = decryptSession(sessionCookie.value);
@@ -207,12 +221,12 @@ export async function GET(request: NextRequest) {
 
     if (!githubResponse.ok) {
       console.error('Failed to fetch user data:', await githubResponse.text());
-      return NextResponse.json({ isAuthenticated: false });
+      return createApiResponse({ isAuthenticated: false });
     }
 
     const userData = await githubResponse.json();
     
-    return NextResponse.json({
+    return createApiResponse({
       isAuthenticated: true,
       user: {
         id: userData.id,
@@ -226,9 +240,23 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Session error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError('server_error', 'Internal server error', 500)
     );
   }
+}
+
+// OPTIONS handler for CORS
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': [
+        'Content-Type',
+        'Authorization',
+      ].join(', '),
+      'Access-Control-Max-Age': '86400', // 24 hours cache for preflight requests
+    },
+  });
 } 

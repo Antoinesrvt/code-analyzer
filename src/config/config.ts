@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 const configSchema = z.object({
   github: z.object({
-    clientId: z.string(),
-    clientSecret: z.string(),
+    clientId: z.string().optional().default(''),
+    clientSecret: z.string().optional().default(''),
     redirectUri: z.string(),
     scopes: z.array(z.string()),
     apiBaseUrl: z.string(),
@@ -25,8 +25,8 @@ export type Config = z.infer<typeof configSchema>;
 
 const config = {
   github: {
-    clientId: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+    clientId: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || '',
+    clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
     redirectUri: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 'http://localhost:3000/auth/callback',
     scopes: ['repo', 'read:user', 'user:email'],
     apiBaseUrl: 'https://api.github.com',

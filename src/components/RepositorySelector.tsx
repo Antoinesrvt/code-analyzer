@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Folder, Clock, Lock, Globe } from 'lucide-react';
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
@@ -9,61 +9,55 @@ import type { Repository } from '@/types/auth';
 import { useAuth } from '@/contexts/auth/AuthContext';
 import { useDebounce } from '@/hooks/useDebounce';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import type { SearchReposParameters } from '../types/github';
 
 interface RepositorySelectorProps {
   onSelect: (repo: Repository) => void;
 }
 
+async function fetchRepositories(searchQuery: string, plan?: string) {
+  const response = await fetch(
+    searchQuery
+      ? `/api/github/search/repositories?q=${encodeURIComponent(searchQuery)}${plan ? `&plan=${plan}` : ''}`
+      : `/api/github/user/repositories${plan ? `?plan=${plan}` : ''}`,
+    { credentials: 'include' }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
+  }
+
+  const data = await response.json();
+  if (!Array.isArray(data.repositories)) {
+    throw new Error('Invalid response format from server');
+  }
+
+  return data.repositories;
+}
+
 export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
-  const [repositories, setRepositories] = useState<Repository[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const { githubUser, dbUser } = useAuth();
-  
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  useEffect(() => {
-    const fetchRepositories = async () => {
-      if (!githubUser) return;
+  const { data: repositories, isLoading, error } = useQuery({
+    queryKey: ['repositories', debouncedSearch, dbUser?.plan],
+    queryFn: () => fetchRepositories(debouncedSearch, dbUser?.plan),
+    enabled: !!githubUser,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 2,
+  });
 
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const planParam = dbUser ? `&plan=${dbUser.plan}` : '';
-        const response = await fetch(
-          debouncedSearch
-            ? `/api/github/search/repositories?q=${encodeURIComponent(debouncedSearch)}${planParam}`
-            : `/api/github/user/repositories${planParam ? `?${planParam.slice(1)}` : ''}`,
-          { credentials: 'include' }
-        );
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
-        }
-        
-        const data = await response.json();
-        if (!Array.isArray(data.repositories)) {
-          throw new Error('Invalid response format from server');
-        }
-        
-        setRepositories(data.repositories);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to fetch repositories';
-        setError(message);
-        toast.error('Failed to load repositories', {
-          description: message
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRepositories();
-  }, [debouncedSearch, githubUser, dbUser]);
+  // Show error toast when query fails
+  React.useEffect(() => {
+    if (error) {
+      toast.error('Failed to load repositories', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
+  }, [error]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">
@@ -87,11 +81,13 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
 
       <div className="space-y-3">
         <AnimatePresence mode="wait">
-          {loading ? (
+          {isLoading ? (
             <RepositoryListSkeleton />
           ) : error ? (
-            <div className="text-center text-destructive py-4">{error}</div>
-          ) : repositories.length === 0 ? (
+            <div className="text-center text-destructive py-4">
+              {error instanceof Error ? error.message : 'Failed to load repositories'}
+            </div>
+          ) : !repositories?.length ? (
             <div className="text-center text-muted-foreground py-4">
               No repositories found
             </div>

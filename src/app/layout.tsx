@@ -5,8 +5,19 @@ import { Toaster } from "sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/contexts/auth/AuthContext";
 import { RepositoryProvider } from "@/contexts/repository/RepositoryContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const inter = Inter({ subsets: ["latin"] });
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 export const metadata: Metadata = {
   title: "GitHub Code Analyzer",
@@ -22,24 +33,26 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ErrorBoundary>
-          <AuthProvider>
-            <RepositoryProvider>
-              {children}
-              <Toaster
-                position="bottom-center"
-                expand={true}
-                richColors
-                closeButton
-                duration={5000}
-                visibleToasts={3}
-                toastOptions={{
-                  style: { background: "white" },
-                  className: "border border-gray-200",
-                  descriptionClassName: "text-gray-500",
-                }}
-              />
-            </RepositoryProvider>
-          </AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <RepositoryProvider>
+                {children}
+                <Toaster
+                  position="bottom-center"
+                  expand={true}
+                  richColors
+                  closeButton
+                  duration={5000}
+                  visibleToasts={3}
+                  toastOptions={{
+                    style: { background: "white" },
+                    className: "border border-gray-200",
+                    descriptionClassName: "text-gray-500",
+                  }}
+                />
+              </RepositoryProvider>
+            </AuthProvider>
+          </QueryClientProvider>
         </ErrorBoundary>
       </body>
     </html>

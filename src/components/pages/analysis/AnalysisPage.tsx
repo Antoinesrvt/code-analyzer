@@ -97,7 +97,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
         onRetry={() => {
           router.refresh();
         }}
-        error={error}
+        error={error.message}
       />
     );
   }

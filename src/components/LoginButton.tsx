@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import { Github } from 'lucide-react';
-import { authService } from '../services/authService';
 import { useAuthStore } from '../store/useAuthStore';
 import { useRouter } from 'next/navigation';
 
@@ -8,9 +7,22 @@ export function LoginButton() {
   const store = useAuthStore();
   const { isAuthenticated, isLoading } = store();
   const router = useRouter();
+
   const handleLogin = async () => {
-    const loginUrl = await authService.initiateLogin();
-    router.push(loginUrl);
+    try {
+      const response = await fetch('/api/auth/github', {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to initialize login');
+      }
+
+      const data = await response.json();
+      router.push(data.url);
+    } catch (error) {
+      console.error('Login error:', error);
+    }
   };
 
   if (isAuthenticated) return null;

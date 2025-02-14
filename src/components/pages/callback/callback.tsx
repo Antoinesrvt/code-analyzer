@@ -13,24 +13,39 @@ interface CallbackHandlerProps {
 export default function CallbackHandler({ code, state }: CallbackHandlerProps) {
   const router = useRouter();
   const store = useAuthStore();
-  const { setLoading, setError } = store();
+  const { setLoading, setError, setUser } = store();
 
   useEffect(() => {
     async function handleCallback() {
       try {
         setLoading(true);
 
-        const response = await fetch("/api/auth/callback", {
+        const response = await fetch("/api/auth/github", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ code, state }),
+          credentials: 'include',
         });
 
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.error || "Authentication failed");
+          throw new Error(error.error_description || error.error || "Authentication failed");
+        }
+
+        // Get user data after successful authentication
+        const userResponse = await fetch("/api/auth/status", {
+          credentials: 'include',
+        });
+        
+        if (!userResponse.ok) {
+          throw new Error("Failed to get user data");
+        }
+
+        const userData = await userResponse.json();
+        if (userData.user) {
+          setUser(userData.user);
         }
 
         // Redirect to dashboard on success
@@ -50,7 +65,7 @@ export default function CallbackHandler({ code, state }: CallbackHandlerProps) {
     }
 
     handleCallback();
-  }, [code, state, router, setError, setLoading]);
+  }, [code, state, router, setError, setLoading, setUser]);
 
   return <CallbackSkeleton />;
 }

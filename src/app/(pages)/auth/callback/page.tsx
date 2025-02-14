@@ -20,10 +20,20 @@ export default async function Page({ searchParams }: PageProps) {
 
   // Get the stored state from cookies
   const cookiesList = await cookies();
-  const storedState = cookiesList.get('oauth_state');
+  const sessionCookie = cookiesList.get('gh_session');
   
-  // Verify the state parameter
-  if (!storedState || storedState.value !== state) {
+  if (!sessionCookie?.value) {
+    redirect('/');
+  }
+
+  try {
+    const session = JSON.parse(sessionCookie.value);
+    // Verify the state parameter
+    if (!session?.oauthState?.value || session.oauthState.value !== state) {
+      redirect('/');
+    }
+  } catch (error) {
+    console.error('Failed to parse session:', error);
     redirect('/');
   }
 

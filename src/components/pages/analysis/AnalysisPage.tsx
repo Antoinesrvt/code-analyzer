@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import type { Repository } from "@/types/auth";
 import { githubService } from "@/services/githubService";
 import { toast } from "sonner";
+import { ClientOnly } from "@/components/ClientOnly";
 import { 
   Boxes, 
   GitBranch, 
@@ -45,9 +46,28 @@ const statsItemVariants = {
 
 export function AnalysisPage({ repository, onClose }: AnalysisPageProps) {
   const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
+  const router = useRouter();
+
+  return (
+    <ClientOnly>
+      <AnalysisPageContent repository={repository} onClose={onClose} activeView={activeView} setActiveView={setActiveView} router={router} />
+    </ClientOnly>
+  );
+}
+
+function AnalysisPageContent({ 
+  repository, 
+  onClose, 
+  activeView, 
+  setActiveView,
+  router 
+}: AnalysisPageProps & { 
+  activeView: "module" | "workflow";
+  setActiveView: (view: "module" | "workflow") => void;
+  router: ReturnType<typeof useRouter>;
+}) {
   const store = useStore();
   const { loading, error, analysisProgress } = store();
-  const router = useRouter();
 
   React.useEffect(() => {
     const startAnalysis = async () => {

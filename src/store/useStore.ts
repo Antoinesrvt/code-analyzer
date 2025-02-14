@@ -21,6 +21,8 @@ interface AnalyzerState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAnalysisProgress: (progress: AnalysisProgress | null) => void;
+  hydrated: boolean;
+  setHydrated: (state: boolean) => void;
 }
 
 // Create a no-op storage for SSR
@@ -44,6 +46,7 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
         loading: false,
         error: null,
         analysisProgress: null,
+        hydrated: false,
         ...preloadedState,
         setRepository: (repo) => set({ repository: repo }),
         setFiles: (files) => set({ files }),
@@ -52,6 +55,7 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
         setLoading: (loading) => set({ loading }),
         setError: (error) => set({ error }),
         setAnalysisProgress: (progress) => set({ analysisProgress: progress }),
+        setHydrated: (state) => set({ hydrated: state }),
       }),
       {
         name: 'analyzer-storage',
@@ -68,6 +72,11 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
           files: state.files,
           modules: state.modules,
         }),
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            state.setHydrated(true);
+          }
+        },
       }
     )
   );
@@ -90,6 +99,7 @@ export function useStore(initState?: Partial<AnalyzerState>) {
       ...initState,
       loading: false,
       error: null,
+      hydrated: false,
     });
   }
 

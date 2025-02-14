@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Folder, Clock } from 'lucide-react';
+import { Search, Folder, Clock, Lock, Globe } from 'lucide-react';
+import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import type { Repository } from '../types/auth';
 import { authService } from '../services/authService';
 import { useDebounce } from '../hooks/useDebounce';
@@ -47,30 +51,28 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
   }, [debouncedSearch]);
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
-      {/* Search Input */}
+    <div className="w-full max-w-3xl mx-auto">
       <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search your repositories..."
-          className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg
-                   focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                   transition-all duration-300"
-        />
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search your repositories..."
+            className="w-full pl-10 h-12 bg-background/60 backdrop-blur-sm"
+          />
+        </div>
       </div>
 
-      {/* Repository List */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <AnimatePresence mode="wait">
           {loading ? (
             <RepositoryListSkeleton />
           ) : error ? (
-            <div className="text-center text-red-500 py-4">{error}</div>
+            <div className="text-center text-destructive py-4">{error}</div>
           ) : repositories.length === 0 ? (
-            <div className="text-center text-gray-500 py-4">
+            <div className="text-center text-muted-foreground py-4">
               No repositories found
             </div>
           ) : (
@@ -90,45 +92,62 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
 
 function RepositoryCard({ repository, onSelect }: { repository: Repository; onSelect: (repo: Repository) => void }) {
   return (
-    <motion.button
-      onClick={() => onSelect(repository)}
-      className="w-full text-left p-4 bg-white rounded-lg border border-gray-200
-                hover:border-blue-500 hover:shadow-md transition-all duration-300
-                focus:outline-none focus:ring-2 focus:ring-blue-500"
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center space-x-2">
-            <Folder className="w-5 h-5 text-blue-500" />
-            <h3 className="font-medium text-gray-900">{repository.name}</h3>
-            {repository.isPrivate && (
-              <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
-                Private
-              </span>
+      <Card 
+        className="group hover:shadow-md transition-all duration-300 bg-background/60 backdrop-blur-sm 
+                 border-muted hover:border-primary/20 cursor-pointer"
+        onClick={() => onSelect(repository)}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-md bg-primary/10 text-primary">
+                <Folder className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">{repository.name}</h3>
+                <p className="text-sm text-muted-foreground">{repository.owner.login}</p>
+              </div>
+            </div>
+            {repository.isPrivate ? (
+              <Lock className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <Globe className="w-4 h-4 text-muted-foreground" />
             )}
           </div>
-          {repository.description && (
-            <p className="mt-1 text-sm text-gray-600">{repository.description}</p>
-          )}
-        </div>
-      </div>
-      
-      <div className="mt-2 flex items-center space-x-4 text-sm text-gray-500">
-        {repository.language && (
-          <span className="flex items-center space-x-1">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
-            <span>{repository.language}</span>
-          </span>
+        </CardHeader>
+        
+        {repository.description && (
+          <>
+            <Separator className="opacity-50" />
+            <CardContent className="py-3">
+              <p className="text-sm text-muted-foreground line-clamp-2">
+                {repository.description}
+              </p>
+            </CardContent>
+          </>
         )}
-        <span className="flex items-center space-x-1">
-          <Clock className="w-4 h-4" />
-          <span>Updated {new Date(repository.updatedAt).toLocaleDateString()}</span>
-        </span>
-      </div>
-    </motion.button>
+
+        <CardFooter className="pt-3">
+          <div className="flex items-center space-x-4 text-sm text-muted-foreground">
+            {repository.language && (
+              <div className="flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span>{repository.language}</span>
+              </div>
+            )}
+            <div className="flex items-center space-x-1.5">
+              <Clock className="w-4 h-4" />
+              <span>Updated {new Date(repository.updatedAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        </CardFooter>
+      </Card>
+    </motion.div>
   );
 }
 
@@ -136,10 +155,9 @@ function RepositoryListSkeleton() {
   return (
     <>
       {[1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="w-full h-24 bg-gray-100 rounded-lg animate-pulse"
-        />
+        <Card key={i} className="w-full h-[140px] animate-pulse">
+          <div className="h-full bg-muted/50" />
+        </Card>
       ))}
     </>
   );

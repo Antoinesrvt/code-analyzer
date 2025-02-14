@@ -30,7 +30,7 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
         setLoading(true);
         setError(null);
 
-        // Exchange code for token
+        // Exchange code for token and get user data
         const response = await fetch('/api/auth/github', {
           method: 'POST',
           headers: {
@@ -45,30 +45,18 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
           throw new Error(data.error_description || data.error || 'Failed to authenticate with GitHub');
         }
 
-        // Small delay to ensure token is properly set
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Get user data
-        const statusResponse = await fetch('/api/auth/status', {
-          credentials: 'include',
-        });
-
-        if (!statusResponse.ok) {
-          throw new Error('Failed to get user status');
-        }
-
-        const statusData = await statusResponse.json();
+        const data = await response.json();
         
         if (!mounted) return;
 
-        if (statusData.isAuthenticated && statusData.user) {
-          setUser(statusData.user);
+        if (data.success && data.user) {
+          setUser(data.user);
           toast.success('Successfully signed in!', {
-            description: `Welcome back, ${statusData.user.name || statusData.user.login}!`,
+            description: `Welcome back, ${data.user.name || data.user.login}!`,
           });
           router.push('/dashboard');
         } else {
-          throw new Error('Authentication failed: User data not available');
+          throw new Error('Authentication failed: Invalid response from server');
         }
       } catch (err) {
         if (!mounted) return;

@@ -93,6 +93,23 @@ export async function POST(request: NextRequest) {
 
     const data: GitHubTokenResponse = await tokenResponse.json();
     
+    // Immediately fetch user data
+    const githubResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${data.access_token}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!githubResponse.ok) {
+      return NextResponse.json(
+        { error: 'Failed to fetch user data' },
+        { status: 400 }
+      );
+    }
+
+    const userData = await githubResponse.json();
+    
     // Create session
     const session = {
       accessToken: data.access_token,
@@ -104,8 +121,19 @@ export async function POST(request: NextRequest) {
     // Encrypt session
     const encryptedSession = encryptSession(session);
 
-    // Set cookie
-    const response = NextResponse.json({ success: true });
+    // Set cookie and return user data
+    const response = NextResponse.json({
+      success: true,
+      user: {
+        id: userData.id,
+        login: userData.login,
+        name: userData.name,
+        email: userData.email,
+        avatarUrl: userData.avatar_url,
+        url: userData.html_url,
+      }
+    });
+    
     response.cookies.set(COOKIE_NAME, encryptedSession, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

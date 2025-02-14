@@ -289,109 +289,117 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const startAnalysis = async (owner: string, repo: string) => {
-    try {
-      setError(null);
-      setState(prev => ({ ...prev, isLoading: true }));
+  // Add startPolling function before startAnalysis
+  const startPolling = async (owner: string, repo: string) => {
+    let pollCount = 0;
+    const maxPolls = 300; // 10 minutes maximum (at 2s intervals)
+    const pollInterval = 2000; // 2 seconds
 
-      // Start analysis
-      const response = await fetch('/api/analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ owner, repo })
-      });
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/analysis/stream?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`, {
+          credentials: 'include',
+        });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || error.error_description || error.error || 'Failed to start analysis');
-      }
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error?.message || 'Failed to fetch analysis status');
+        }
 
-      const data = await response.json();
-      const analysisId = data.data.id;
-
-      // Poll for analysis progress
-      const pollProgress = async () => {
-        try {
-          const progressResponse = await fetch(`/api/analysis/${analysisId}/progress`, {
-            credentials: 'include',
-            headers: {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache'
-            }
-          });
-
-          if (!progressResponse.ok) {
-            throw new Error('Failed to fetch analysis progress');
-          }
-
-          const progressData = await progressResponse.json();
-          const progress = progressData.data.analysisProgress;
-
-          setState(prev => ({
-            ...prev,
-            analysisProgress: progress
-          }));
+        const data = await response.json();
+        
+        if (data.success) {
+          const progress = data.data.analysisProgress;
+          updateAnalysisProgress(progress);
 
           if (progress.status === 'complete') {
-            // Analysis completed, fetch the results
-            const analysisResponse = await fetch(`/api/analysis/${analysisId}`, {
-              credentials: 'include',
-              headers: {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-              }
-            });
-
-            if (!analysisResponse.ok) {
-              throw new Error('Failed to fetch analysis results');
-            }
-
-            const analysisData = await analysisResponse.json();
+            // Analysis completed successfully
             setState(prev => ({
               ...prev,
-              selectedRepo: analysisData.data,
+              selectedRepo: data.data,
               isLoading: false,
               error: null
             }));
-
-            toast.success('Analysis completed!', {
-              description: `Successfully analyzed ${repo}`
-            });
-
-            // Invalidate queries to refresh the list
-            queryClient.invalidateQueries({ queryKey: ['analyzedRepos'] });
-          } else if (progress.status === 'failed') {
-            throw new Error(progress.message || 'Analysis failed');
-          } else {
-            // Continue polling
-            setTimeout(pollProgress, 2000);
+            return;
+          } else if (progress.status === 'error') {
+            throw new Error(progress.error || 'Analysis failed');
           }
-        } catch (error) {
-          setState(prev => ({
-            ...prev,
-            isLoading: false,
-            error: error instanceof Error ? error : new Error('Failed to process analysis')
-          }));
         }
-      };
 
-      // Start polling
-      pollProgress();
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: error instanceof Error ? error : new Error('Failed to start analysis')
-      }));
-      throw error;
-    }
+        // Continue polling if not complete and within limits
+        if (pollCount < maxPolls) {
+          pollCount++;
+          setTimeout(poll, pollInterval);
+        } else {
+          throw new Error('Analysis timed out');
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error : new Error('Failed to poll analysis status'));
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    // Start polling
+    poll();
+  };
+
+  const startAnalysis = async (owner: string, repo: string) => {
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 5000; // 5 seconds
+
+    const attemptAnalysis = async (): Promise<void> => {
+      try {
+        // Clear previous state
+        clearAnalysis();
+        
+        setState(prev => ({ ...prev, isLoading: true }));
+        setError(null);
+
+        const response = await fetch('/api/analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          },
+          credentials: 'include',
+          body: JSON.stringify({ owner, repo }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error?.message || 'Failed to start analysis');
+        }
+
+        const data = await response.json();
+        if (data.success) {
+          // Start polling for updates if needed
+          if (data.data.pollInterval) {
+            startPolling(owner, repo);
+          }
+        }
+
+      } catch (error) {
+        if (retryCount < maxRetries && 
+            (error instanceof Error && error.message.includes('ERR_INSUFFICIENT_RESOURCES'))) {
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          return attemptAnalysis();
+        }
+        
+        setError(error instanceof Error ? error : new Error('Failed to analyze repository'));
+        setState(prev => ({ ...prev, isLoading: false }));
+        
+        // Clear analysis state on fatal error
+        clearAnalysis();
+        
+        throw error;
+      }
+    };
+
+    return attemptAnalysis();
   };
 
   const refreshAnalysis = async (owner: string, repo: string) => {

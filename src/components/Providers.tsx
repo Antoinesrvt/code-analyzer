@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/auth/AuthContext";
 import { RepositoryProvider } from "@/contexts/repository/RepositoryContext";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { Toaster } from "sonner";
 import { useState } from "react";
 

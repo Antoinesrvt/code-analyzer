@@ -61,40 +61,27 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
 
     const session = decryptSession(sessionCookie.value);
 
-    // Add timeout handling
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+    // Add shorter timeout for initial checks
+    const checkTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new ApiError('timeout', 'Request timed out', 504)), 10000)
+    );
 
     try {
-      // Check for existing analysis first (with shorter timeout)
+      // Check for existing analysis with timeout
       const existingAnalysis = await Promise.race([
-        databaseService.getUserAnalysis(
-          session.githubId,
-          data.owner,
-          data.repo
-        ) as Promise<IAnalysis | null>,
-        new Promise<null>((_, reject) => 
-          setTimeout(() => reject(new Error('DB lookup timeout')), 5000)
-        )
+        databaseService.getUserAnalysis(session.githubId, data.owner, data.repo) as Promise<IAnalysis | null>,
+        checkTimeout
       ]);
 
-      // Check if there's a valid existing analysis
       if (existingAnalysis) {
-        const status = existingAnalysis.analysisProgress?.status;
+        const status = (existingAnalysis as IAnalysis).analysisProgress?.status;
         
-        // Return existing analysis if it's complete and not expired
-        if (status === 'complete' && !existingAnalysis.isExpired()) {
-          clearTimeout(timeoutId);
-          return createApiResponse(existingAnalysis);
-        }
-        
-        // If analysis is in progress, return current progress
-        if (status === 'analyzing' || status === 'idle') {
-          clearTimeout(timeoutId);
+        // If analysis is already in progress, prevent duplicate requests
+        if (status === 'analyzing') {
           return createApiResponse({
-            id: existingAnalysis.id,
+            id: (existingAnalysis as IAnalysis).id,
             status: status,
-            progress: existingAnalysis.analysisProgress,
+            message: 'Analysis already in progress',
             pollInterval: 2000
           }, 202);
         }
@@ -113,24 +100,52 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
         }
       });
 
-      // Start analysis in the background without waiting
-      databaseService.processAnalysis(analysis.id, {
-        onProgress: async (progress) => {
-          console.log('Analysis progress:', progress);
-        },
-        onComplete: async (data) => {
-          console.log('Analysis complete:', data);
-        },
-        onError: async (error) => {
-          console.error('Analysis error:', error);
+      // Start analysis in background with error handling
+      let analysisStarted = false;
+      const startAnalysis = async () => {
+        try {
+          if (analysisStarted) return;
+          analysisStarted = true;
+          
+          await databaseService.processAnalysis(analysis.id, {
+            onProgress: async (progress) => {
+              console.log('Analysis progress:', progress);
+            },
+            onComplete: async (data) => {
+              console.log('Analysis complete:', data);
+            },
+            onError: async (error) => {
+              console.error('Analysis error:', error);
+              // Update analysis status to error
+              await databaseService.updateAnalysis(analysis.id, {
+                analysisProgress: {
+                  status: 'error',
+                  current: 0,
+                  total: 100,
+                  message: 'Analysis failed',
+                  error: error.message
+                }
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Failed to start analysis:', error);
+          // Update analysis status to error
+          await databaseService.updateAnalysis(analysis.id, {
+            analysisProgress: {
+              status: 'error',
+              current: 0,
+              total: 100,
+              message: 'Failed to start analysis',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            }
+          });
         }
-      }).catch(error => {
-        console.error('Background analysis failed:', error);
-      });
+      };
 
-      clearTimeout(timeoutId);
-      
-      // Return immediately with the pending analysis
+      // Start analysis without waiting
+      startAnalysis().catch(console.error);
+
       return createApiResponse({
         id: analysis.id,
         status: 'idle',
@@ -139,14 +154,16 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
       }, 202);
 
     } catch (error) {
-      clearTimeout(timeoutId);
+      if (error instanceof ApiError && error.code === 'timeout') {
+        return createErrorResponse(error);
+      }
       throw error;
     }
 
   } catch (error) {
     console.error('Failed to create analysis:', error);
     return createErrorResponse(
-      new ApiError('creation_failed', 'Failed to create analysis')
+      new ApiError('creation_failed', 'Failed to create analysis', 400)
     );
   }
 });

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRepository } from '@/contexts/repository/RepositoryContext';
 import { WorkflowGraph } from '@/components/workflow/WorkflowGraph';
 import { WorkflowSkeleton } from '@/components/workflow/WorkflowSkeleton';
-import { AnalysisProgress } from './AnalysisProgress';
+import { AnalysisProgress } from './states/AnalysisProgress';
 
 export function WorkflowView() {
   const { workflow, isLoading, selectedRepo, analysisProgress } = useRepository();

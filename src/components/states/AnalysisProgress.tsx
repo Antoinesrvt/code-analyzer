@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
-import { ClientOnly } from './ClientOnly';
 import { useRepository } from '@/contexts/repository/RepositoryContext';
 import type { AnalysisProgress as AnalysisProgressType } from '@/types';
 import { Progress } from '@/components/ui/progress';

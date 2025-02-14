@@ -5,14 +5,14 @@ import { GitBranch } from "lucide-react";
 import { Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
-import { ModuleView } from "@/components/ModuleView";
+import { ModuleView } from "@/components/modules/ModuleView";
 import { WorkflowView } from "@/components/WorkflowView";
 import { LandingHero } from "@/components/LandingHero";
-import { LoadingView } from "@/components/LoadingView";
+import { LoadingView } from "@/components/states/LoadingView";
 import { LoginButton } from "@/components/LoginButton";
 import { useAuth } from "@/contexts/auth/AuthContext";
 import { useRepository } from "@/contexts/repository/RepositoryContext";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/states/ErrorBoundary";
 import { useRouter } from "next/navigation";
 
 export default function Home() {

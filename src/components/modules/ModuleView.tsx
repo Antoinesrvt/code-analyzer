@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRepository } from '@/contexts/repository/RepositoryContext';
 import { GraphNode, ModuleGraph } from './ModuleGraph';
 import { ModuleSkeleton } from './ModuleSkeleton';
-import { PerformanceReport } from './PerformanceReport';
-import { AnalysisProgress } from './AnalysisProgress';
+import { PerformanceReport } from '../PerformanceReport';
+import { AnalysisProgress } from '../states/AnalysisProgress';
 
 export function ModuleView() {
   const { modules, files, isLoading, selectedRepo, analysisProgress } = useRepository();

@@ -2,10 +2,9 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ModuleView } from "@/components/ModuleView";
+import { ModuleView } from "@/components/modules/ModuleView";
 import { WorkflowView } from "@/components/WorkflowView";
-import { LoadingView } from "@/components/LoadingView";
-import { AnalysisProgress } from "@/components/AnalysisProgress";
+import { LoadingView } from "@/components/states/LoadingView";
 import { useRepository } from "@/contexts/repository/RepositoryContext";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -49,6 +48,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
 
   React.useEffect(() => {
     let mounted = true;
+    let retryTimeout: NodeJS.Timeout;
 
     const analyze = async () => {
       if (!mounted) return;
@@ -69,10 +69,28 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
         await startAnalysis(owner, repo);
       } catch (error) {
         if (!mounted) return;
+        
         const message = error instanceof Error ? error.message : 'Failed to analyze repository';
-        toast.error('Analysis failed', {
-          description: message,
-        });
+        
+        // Show different message for resource errors
+        if (message.includes('ERR_INSUFFICIENT_RESOURCES')) {
+          toast.error('Resource limit reached', {
+            description: 'Please try again in a few minutes or analyze a smaller repository.',
+            duration: 10000,
+          });
+        } else {
+          toast.error('Analysis failed', {
+            description: message,
+          });
+        }
+        
+        // Auto-redirect on fatal errors
+        retryTimeout = setTimeout(() => {
+          if (mounted) {
+            clearAnalysis();
+            router.push('/dashboard');
+          }
+        }, 5000);
       }
     };
 
@@ -80,6 +98,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
 
     return () => {
       mounted = false;
+      clearTimeout(retryTimeout);
       clearAnalysis();
     };
   }, [owner, repo, startAnalysis, clearAnalysis, dbUser, analyzedRepos.length, router]);

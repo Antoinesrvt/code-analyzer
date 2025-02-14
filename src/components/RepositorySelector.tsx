@@ -22,14 +22,15 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
     const baseUrl = '/api/github/user/repositories';
     const params = new URLSearchParams();
     
-    // Add search params
-    if (searchQuery) params.set('q', searchQuery);
-    if (plan) params.set('plan', plan);
-    
-    // Add default sorting
+    // Add default sorting and filtering
     params.set('sort', 'pushed');
     params.set('direction', 'desc');
     params.set('per_page', '30');
+    params.set('type', 'owner'); // Only show owned repos
+    
+    // Add search params if provided
+    if (searchQuery) params.set('q', searchQuery);
+    if (plan) params.set('plan', plan);
     
     const url = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
 
@@ -48,9 +49,9 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
     }
 
     const data = await response.json();
-    
-    // If there's a search query, filter repositories client-side
     const repositories = data.data?.repositories || [];
+    
+    // Client-side filtering for search
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       return repositories.filter(repo => 
@@ -83,8 +84,8 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
     enabled: !!githubUser && isAuthenticated,
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: (failureCount, error) => {
-      // Don't retry on 400 errors
-      if (error instanceof Error && error.message.includes('400')) return false;
+      if (error instanceof Error && error.message.includes('401')) return false;
+      if (error instanceof Error && error.message.includes('403')) return false;
       return failureCount < 2;
     },
     retryDelay: 1000,

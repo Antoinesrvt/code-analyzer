@@ -62,19 +62,24 @@ async function checkAuthStatus() {
 async function initiateLogin() {
   const response = await fetch('/api/auth/github', {
     credentials: 'include',
+    headers: {
+      'Accept': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    }
   });
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error_description || error.error || 'Failed to initialize login');
+    throw new Error(error.error?.message || error.error_description || error.error || 'Failed to initialize login');
   }
 
   const data = await response.json();
-  if (!data.url) {
-    throw new Error('No authorization URL returned');
+  if (!data.data?.url) {
+    throw new Error('No authorization URL returned from server');
   }
 
-  return data;
+  return data.data;
 }
 
 async function logoutUser() {
@@ -184,12 +189,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
     },
     onSuccess: (data) => {
-      window.location.href = data.url;
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No authorization URL returned from server');
+      }
     },
     onError: (error) => {
       const errorMessage = error instanceof Error ? error.message : 'Failed to initialize login';
       setError(errorMessage);
-      toast.error('Login failed', { description: errorMessage });
+      toast.error('Login failed', { 
+        description: errorMessage,
+        duration: 5000
+      });
     },
   });
 

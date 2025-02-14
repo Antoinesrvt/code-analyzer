@@ -56,7 +56,6 @@ export async function GET() {
       };
 
       const response = createApiResponse({
-        success: true,
         url: `${GITHUB_OAUTH_URL}?${params}`,
         state,
       });

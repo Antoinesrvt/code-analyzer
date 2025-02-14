@@ -41,9 +41,7 @@ export async function GET(request: NextRequest) {
       }
 
       const githubData = await githubResponse.json();
-
-      // Get or create user in our database
-      const dbUser = await userService.findOrCreateUser({
+      const githubUser = {
         id: githubData.id,
         login: githubData.login,
         name: githubData.name,
@@ -51,20 +49,21 @@ export async function GET(request: NextRequest) {
         avatarUrl: githubData.avatar_url,
         url: githubData.html_url,
         type: githubData.type || 'User',
-      });
+      };
+
+      // Try to get or create user in our database
+      let dbUser = null;
+      try {
+        dbUser = await userService.findOrCreateUser(githubUser);
+      } catch (dbError) {
+        console.error('Database error:', dbError);
+        // Continue without database user - this allows the app to work even if MongoDB is down
+      }
 
       return NextResponse.json({
         isAuthenticated: true,
-        user: {
-          id: githubData.id,
-          login: githubData.login,
-          name: githubData.name,
-          email: githubData.email,
-          avatarUrl: githubData.avatar_url,
-          url: githubData.html_url,
-          type: githubData.type || 'User',
-        },
-        dbUser: {
+        user: githubUser,
+        dbUser: dbUser ? {
           githubId: dbUser.githubId,
           email: dbUser.email,
           login: dbUser.login,
@@ -74,7 +73,7 @@ export async function GET(request: NextRequest) {
           lastLoginAt: dbUser.lastLoginAt,
           createdAt: dbUser.createdAt,
           updatedAt: dbUser.updatedAt,
-        },
+        } : null,
         hasToken: true,
         timestamp: Date.now()
       });

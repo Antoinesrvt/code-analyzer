@@ -52,7 +52,13 @@ export function AnalysisPage({ repository, onClose }: AnalysisPageProps) {
   React.useEffect(() => {
     const startAnalysis = async () => {
       try {
-        const analyzedRepo = await githubService.analyzeRepository(repository.cloneUrl);
+        // First, ensure we have the complete repository data
+        const completeRepo = await githubService.getRepositoryData(
+          repository.owner.login,
+          repository.name
+        );
+
+        const analyzedRepo = await githubService.analyzeRepository(completeRepo.cloneUrl);
         store().setRepository(analyzedRepo);
         toast.success('Analysis completed!', {
           description: `Successfully analyzed ${repository.name}`,

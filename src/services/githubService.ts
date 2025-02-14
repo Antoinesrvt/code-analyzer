@@ -277,6 +277,54 @@ class GitHubService {
     return this.octokit;
   }
 
+  public async getRepositoryData(owner: string, repo: string): Promise<Repository> {
+    const octokit = await this.ensureAuthenticated();
+    const { data: repoData } = await workflowMonitor.executeWithRetry(
+      'fetch-repo-data',
+      () => octokit.rest.repos.get({ owner, repo }),
+      { timeout: config.api.timeout }
+    );
+
+    const repoOwner: User = {
+      id: repoData.owner.id,
+      email: repoData.owner.email || null,
+      login: repoData.owner.login,
+      name: repoData.owner.name || null,
+      avatarUrl: repoData.owner.avatar_url,
+      url: repoData.owner.url,
+      type: repoData.owner.type as 'User' | 'Organization',
+    };
+
+    return {
+      id: repoData.id,
+      name: repoData.name,
+      fullName: repoData.full_name,
+      description: repoData.description || '',
+      owner: repoOwner,
+      url: repoData.html_url,
+      gitUrl: repoData.git_url,
+      sshUrl: repoData.ssh_url,
+      cloneUrl: repoData.clone_url,
+      defaultBranch: repoData.default_branch,
+      visibility: repoData.visibility as 'public' | 'private' | 'internal',
+      createdAt: repoData.created_at,
+      updatedAt: repoData.updated_at,
+      pushedAt: repoData.pushed_at,
+      isPrivate: repoData.private,
+      isFork: repoData.fork,
+      permissions: {
+        admin: repoData.permissions?.admin || false,
+        maintain: repoData.permissions?.maintain,
+        push: repoData.permissions?.push || false,
+        triage: repoData.permissions?.triage,
+        pull: repoData.permissions?.pull || false,
+      },
+      topics: repoData.topics || [],
+      language: repoData.language,
+      size: repoData.size,
+    };
+  }
+
   public async analyzeRepository(url: string, onProgress?: (progress: AnalysisProgress) => void): Promise<AnalyzedRepo> {
     if (typeof window === 'undefined') {
       throw new Error('Cannot analyze repository during SSR');

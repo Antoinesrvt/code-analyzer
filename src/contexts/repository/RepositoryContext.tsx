@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type { Repository } from '@/types/auth';
 import type { FileNode, Module, AnalysisProgress, WorkflowNode, WorkflowEdge } from '@/types';
 import type { AnalysisPerformanceMetrics } from '@/types/performance';
+import { useAuth } from '@/contexts/auth/AuthContext';
 
 interface AnalyzedRepo extends Repository {
   lastAnalyzed: string;
@@ -44,6 +45,7 @@ interface RepositoryContextType extends RepositoryState {
 const RepositoryContext = createContext<RepositoryContextType | null>(null);
 
 export function RepositoryProvider({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [state, setState] = useState<RepositoryState>({
     analyzedRepos: [],
     selectedRepo: null,
@@ -59,10 +61,28 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   });
 
   useEffect(() => {
-    loadAnalyzedRepos();
-  }, []);
+    // Only load repositories if authenticated and auth loading is complete
+    if (isAuthenticated && !authLoading) {
+      loadAnalyzedRepos();
+    } else if (!isAuthenticated && !authLoading) {
+      // Clear state when not authenticated
+      setState(prev => ({
+        ...prev,
+        analyzedRepos: [],
+        selectedRepo: null,
+        files: [],
+        modules: [],
+        workflow: { nodes: [], edges: [] },
+        isLoading: false,
+        error: null,
+        analysisProgress: null,
+      }));
+    }
+  }, [isAuthenticated, authLoading]);
 
   const loadAnalyzedRepos = async () => {
+    if (!isAuthenticated) return;
+
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
       
@@ -88,9 +108,6 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
         isLoading: false,
         error: message,
       }));
-      toast.error('Failed to load repositories', {
-        description: message,
-      });
     }
   };
 
@@ -128,6 +145,13 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const selectRepository = async (repo: Repository) => {
+    if (!isAuthenticated) {
+      toast.error('Authentication required', {
+        description: 'Please sign in to analyze repositories',
+      });
+      return;
+    }
+
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
       
@@ -160,6 +184,20 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const startAnalysis = async (owner: string, repo: string) => {
+    if (!isAuthenticated) {
+      toast.error('Authentication required', {
+        description: 'Please sign in to analyze repositories',
+      });
+      return;
+    }
+
+    if (!owner || !repo) {
+      toast.error('Invalid repository', {
+        description: 'Please select a repository to analyze',
+      });
+      return;
+    }
+
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
       
@@ -203,6 +241,27 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const refreshAnalysis = async (owner: string, repo: string) => {
+    if (!isAuthenticated) {
+      toast.error('Authentication required', {
+        description: 'Please sign in to refresh analysis',
+      });
+      return;
+    }
+
+    if (!owner || !repo) {
+      toast.error('Invalid repository', {
+        description: 'Please select a repository to refresh',
+      });
+      return;
+    }
+
+    if (!state.selectedRepo) {
+      toast.error('No repository selected', {
+        description: 'Please select a repository first',
+      });
+      return;
+    }
+
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
       
@@ -244,6 +303,20 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const deleteAnalysis = async (owner: string, repo: string) => {
+    if (!isAuthenticated) {
+      toast.error('Authentication required', {
+        description: 'Please sign in to delete analysis',
+      });
+      return;
+    }
+
+    if (!owner || !repo) {
+      toast.error('Invalid repository', {
+        description: 'Please select a repository to delete',
+      });
+      return;
+    }
+
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
       
@@ -285,6 +358,10 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const getAnalysisProgress = async (owner: string, repo: string): Promise<AnalysisProgress | null> => {
+    if (!isAuthenticated) return null;
+
+    if (!owner || !repo || !state.selectedRepo) return null;
+
     try {
       const response = await fetch(`/api/analysis/${owner}/${repo}/progress`, {
         credentials: 'include',

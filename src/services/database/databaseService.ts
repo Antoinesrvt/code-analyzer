@@ -6,6 +6,8 @@ import { userService } from './userService';
 
 export class DatabaseService {
   private static instance: DatabaseService;
+  private analysisQueue = new Map<string, Promise<void>>();
+  private processingTimeouts = new Map<string, NodeJS.Timeout>();
 
   private constructor() {}
 
@@ -194,60 +196,113 @@ export class DatabaseService {
   }
 
   async processAnalysis(analysisId: string): Promise<void> {
-    try {
-      const analysis = await Analysis.findById(analysisId);
-      if (!analysis) {
-        throw new Error('Analysis not found');
-      }
+    const queueKey = `analysis_${analysisId}`;
+    
+    // Check if analysis is already being processed
+    if (this.analysisQueue.has(queueKey)) {
+      return this.analysisQueue.get(queueKey);
+    }
 
-      // Update status to in-progress
-      analysis.analysisProgress = {
-        status: 'in_progress',
-        current: 0,
-        total: 100,
-        message: 'Starting analysis...'
-      };
-      await analysis.save();
+    const analysisPromise = (async () => {
+      try {
+        const analysis = await Analysis.findById(analysisId);
+        if (!analysis) {
+          throw new Error('Analysis not found');
+        }
 
-      // TODO: Implement the actual analysis process here
-      // This should be moved to a separate service/worker
-      // For now, we'll just simulate progress
-      for (let i = 0; i <= 100; i += 10) {
+        // Prevent duplicate processing
+        if (analysis.analysisProgress?.status === 'complete') {
+          return;
+        }
+
+        // Update status to in-progress
         analysis.analysisProgress = {
           status: 'in_progress',
-          current: i,
-          total: 100,
-          message: `Processing ${i}% complete...`
-        };
-        await analysis.save();
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      // Update final status
-      analysis.analysisProgress = {
-        status: 'complete',
-        current: 100,
-        total: 100,
-        message: 'Analysis completed successfully'
-      };
-      await analysis.save();
-    } catch (error) {
-      console.error('Analysis processing failed:', error);
-      
-      // Update error status
-      const analysis = await Analysis.findById(analysisId);
-      if (analysis) {
-        analysis.analysisProgress = {
-          status: 'failed',
           current: 0,
           total: 100,
-          message: error instanceof Error ? error.message : 'Analysis failed'
+          message: 'Starting analysis...'
         };
         await analysis.save();
+
+        // Process in smaller chunks with timeouts
+        const chunks = 10;
+        for (let i = 0; i <= chunks; i++) {
+          // Clear any existing timeout
+          const existingTimeout = this.processingTimeouts.get(analysisId);
+          if (existingTimeout) {
+            clearTimeout(existingTimeout);
+          }
+
+          // Set new timeout for this chunk
+          const timeout = setTimeout(() => {
+            analysis.analysisProgress = {
+              status: 'failed',
+              current: (i / chunks) * 100,
+              total: 100,
+              message: 'Analysis timeout'
+            };
+            analysis.save().catch(console.error);
+          }, 30000); // 30 second timeout per chunk
+
+          this.processingTimeouts.set(analysisId, timeout);
+
+          if (analysis.analysisProgress?.status === 'failed') {
+            clearTimeout(timeout);
+            break;
+          }
+
+          analysis.analysisProgress = {
+            status: 'in_progress',
+            current: (i / chunks) * 100,
+            total: 100,
+            message: `Processing ${Math.round((i / chunks) * 100)}% complete...`
+          };
+          await analysis.save();
+          
+          // Add small delay between updates to prevent database overload
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Clear successful chunk timeout
+          clearTimeout(timeout);
+        }
+
+        // Update final status
+        analysis.analysisProgress = {
+          status: 'complete',
+          current: 100,
+          total: 100,
+          message: 'Analysis completed successfully'
+        };
+        await analysis.save();
+
+      } catch (error) {
+        console.error('Analysis processing failed:', error);
+        
+        const analysis = await Analysis.findById(analysisId);
+        if (analysis) {
+          analysis.analysisProgress = {
+            status: 'failed',
+            current: 0,
+            total: 100,
+            message: error instanceof Error ? error.message : 'Analysis failed'
+          };
+          await analysis.save();
+        }
+        
+        throw error;
+      } finally {
+        // Clean up
+        this.analysisQueue.delete(queueKey);
+        const timeout = this.processingTimeouts.get(analysisId);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.processingTimeouts.delete(analysisId);
+        }
       }
-      
-      throw error;
-    }
+    })();
+
+    this.analysisQueue.set(queueKey, analysisPromise);
+    return analysisPromise;
   }
 
   async getUserAnalyses(

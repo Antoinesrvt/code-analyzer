@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { databaseService } from '@/services/database/databaseService';
 import { decryptSession } from '@/app/api/auth/[...nextauth]/route';
-import { UserPlan } from '@/models/Analysis';
+import { UserPlan, Analysis, IAnalysis } from '@/models/Analysis';
 import { withValidation } from '../utils/validateRequest';
 import { 
   createApiResponse, 
@@ -60,45 +60,61 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
 
     const session = decryptSession(sessionCookie.value);
 
-    // Check for existing analysis
-    const existingAnalysis = await databaseService.getUserAnalysis(
-      session.githubId,
-      data.owner,
-      data.repo
-    );
+    // Add timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
-    if (existingAnalysis) {
-      if (!existingAnalysis.isExpired()) {
+    try {
+      // Check for existing analysis first (with shorter timeout)
+      const existingAnalysis = await Promise.race([
+        databaseService.getUserAnalysis(
+          session.githubId,
+          data.owner,
+          data.repo
+        ) as Promise<IAnalysis | null>,
+        new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('DB lookup timeout')), 5000)
+        )
+      ]);
+
+      if (existingAnalysis?.isExpired && !existingAnalysis.isExpired()) {
+        clearTimeout(timeoutId);
         return createApiResponse(existingAnalysis);
       }
-      // If expired, we'll create a new one but keep the ID
+
+      // Create new analysis with pending status
+      const analysis = await databaseService.createAnalysis({
+        githubId: session.githubId,
+        owner: data.owner,
+        repo: data.repo,
+        analysisProgress: {
+          status: 'pending',
+          current: 0,
+          total: 100,
+          message: 'Initializing analysis...'
+        }
+      });
+
+      // Start analysis in the background without waiting
+      databaseService.processAnalysis(analysis.id).catch(error => {
+        console.error('Background analysis failed:', error);
+      });
+
+      clearTimeout(timeoutId);
+      
+      // Return immediately with the pending analysis
+      return createApiResponse({
+        id: analysis.id,
+        status: 'pending',
+        message: 'Analysis started',
+        pollInterval: 2000
+      }, 202);
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
 
-    // Create new analysis with pending status
-    const analysis = await databaseService.createAnalysis({
-      githubId: session.githubId,
-      owner: data.owner,
-      repo: data.repo,
-      analysisProgress: {
-        status: 'pending',
-        current: 0,
-        total: 100,
-        message: 'Initializing analysis...'
-      }
-    });
-
-    // Start analysis in the background
-    databaseService.processAnalysis(analysis.id).catch(error => {
-      console.error('Background analysis failed:', error);
-    });
-
-    // Return immediately with the pending analysis
-    return createApiResponse({
-      id: analysis.id,
-      status: 'pending',
-      message: 'Analysis started',
-      pollInterval: 2000 // Suggest polling interval in ms
-    }, 202);
   } catch (error) {
     console.error('Failed to create analysis:', error);
     return createErrorResponse(

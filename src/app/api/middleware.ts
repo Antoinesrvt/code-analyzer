@@ -25,6 +25,50 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400', // 24 hours
 };
 
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_MAX = 100; // Maximum requests per window
+const rateLimitMap = new Map<string, { count: number; timestamp: number }>();
+
+function getRateLimitKey(request: NextRequest): string {
+  // Use forwarded IP or connection remote address as the rate limit key
+  const ip = request.headers.get('x-forwarded-for') || 
+             request.headers.get('x-real-ip') || 
+             'unknown';
+  const sessionCookie = request.cookies.get('gh_session');
+  return sessionCookie ? `${ip}_${sessionCookie.value}` : ip;
+}
+
+function isRateLimited(request: NextRequest): boolean {
+  const key = getRateLimitKey(request);
+  const now = Date.now();
+  const rateLimit = rateLimitMap.get(key);
+
+  // Clean up expired entries
+  for (const [k, v] of rateLimitMap.entries()) {
+    if (now - v.timestamp > RATE_LIMIT_WINDOW) {
+      rateLimitMap.delete(k);
+    }
+  }
+
+  if (!rateLimit) {
+    rateLimitMap.set(key, { count: 1, timestamp: now });
+    return false;
+  }
+
+  if (now - rateLimit.timestamp > RATE_LIMIT_WINDOW) {
+    rateLimitMap.set(key, { count: 1, timestamp: now });
+    return false;
+  }
+
+  if (rateLimit.count >= RATE_LIMIT_MAX) {
+    return true;
+  }
+
+  rateLimit.count++;
+  return false;
+}
+
 export async function middleware(request: NextRequest) {
   // Get the origin from the request headers
   const origin = request.headers.get('origin');
@@ -38,6 +82,31 @@ export async function middleware(request: NextRequest) {
       headers.set('Access-Control-Allow-Credentials', 'true');
     }
     return new NextResponse(null, { status: 204, headers });
+  }
+
+  // Check rate limiting for analysis endpoints
+  if (requestPath.startsWith('/api/analysis')) {
+    if (isRateLimited(request)) {
+      return new NextResponse(
+        JSON.stringify({
+          error: {
+            code: 'rate_limit_exceeded',
+            message: 'Too many requests, please try again later.',
+            details: {
+              retryAfter: Math.ceil(RATE_LIMIT_WINDOW / 1000),
+              unit: 'seconds'
+            }
+          }
+        }),
+        { 
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': Math.ceil(RATE_LIMIT_WINDOW / 1000).toString()
+          }
+        }
+      );
+    }
   }
 
   // Create a mutable request to modify

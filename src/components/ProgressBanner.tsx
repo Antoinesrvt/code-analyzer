@@ -17,23 +17,8 @@ export function ProgressBanner({ progress }: ProgressBannerProps) {
   };
 
   const getProgressPercentage = (): number => {
-    if (progress.totalFiles === 0) return 0;
-    return Math.round((progress.analyzedFiles / progress.totalFiles) * 100);
-  };
-
-  const getPhaseMessage = (): string => {
-    switch (progress.currentPhase) {
-      case 'initializing':
-        return 'Initializing analysis...';
-      case 'fetching-repository':
-        return 'Fetching repository data...';
-      case 'analyzing-files':
-        return 'Analyzing repository structure...';
-      case 'completed':
-        return 'Analysis complete!';
-      default:
-        return 'Processing...';
-    }
+    if (progress.total === 0) return 0;
+    return Math.round((progress.current / progress.total) * 100);
   };
 
   return (
@@ -42,22 +27,22 @@ export function ProgressBanner({ progress }: ProgressBannerProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              {progress.status === 'error' ? (
+              {progress.status === 'failed' ? (
                 <AlertTriangle className="w-5 h-5 text-red-500" />
               ) : (
                 <Clock className="w-5 h-5 text-blue-500" />
               )}
               <span className="font-medium text-gray-900">
-                {getPhaseMessage()}
+                {progress.message}
               </span>
             </div>
             <div className="text-sm text-gray-500">
-              {progress.analyzedFiles} of {progress.totalFiles} files analyzed
+              {getProgressPercentage()}% complete
             </div>
           </div>
 
           <div className="flex items-center space-x-4">
-            {progress.estimatedTimeRemaining > 0 && (
+            {progress.estimatedTimeRemaining && (
               <div className="text-sm text-gray-500">
                 Estimated time remaining: {formatTime(progress.estimatedTimeRemaining)}
               </div>
@@ -76,14 +61,12 @@ export function ProgressBanner({ progress }: ProgressBannerProps) {
           </div>
         </div>
 
-        {progress.errors.length > 0 && (
+        {progress.error && (
           <div className="mt-2 text-sm text-red-600">
-            {progress.errors.map((error, index) => (
-              <div key={index} className="flex items-center space-x-1">
-                <AlertTriangle className="w-4 h-4" />
-                <span>{error}</span>
-              </div>
-            ))}
+            <div className="flex items-center space-x-1">
+              <AlertTriangle className="w-4 h-4" />
+              <span>{progress.error}</span>
+            </div>
           </div>
         )}
       </div>

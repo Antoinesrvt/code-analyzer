@@ -17,7 +17,7 @@ export function WorkflowView() {
     <div className="w-full h-full relative">
       {/* Progress Banner */}
       <AnimatePresence>
-        {analysisProgress && analysisProgress.status === 'in-progress' && (
+        {analysisProgress && analysisProgress.status === 'in_progress' && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -52,7 +52,7 @@ export function WorkflowView() {
             <WorkflowGraph
               nodes={workflow.nodes}
               edges={workflow.edges}
-              analysisInProgress={analysisProgress?.status === 'in-progress'}
+              analysisInProgress={analysisProgress?.status === 'in_progress'}
             />
           </motion.div>
         )}

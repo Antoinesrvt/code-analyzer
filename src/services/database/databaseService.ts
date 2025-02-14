@@ -1,7 +1,7 @@
 import dbConnect from '@/lib/mongoose';
 import { Analysis, IAnalysis } from '@/models/Analysis';
 import type { Repository } from '@/types/auth';
-import type { AnalysisProgress, FileNode, Module } from '@/types';
+import type { AnalysisProgress, FileNode, Module, AnalysisStatus } from '@/types';
 import { userService } from './userService';
 
 export class DatabaseService {
@@ -195,6 +195,21 @@ export class DatabaseService {
     return analysis.save();
   }
 
+  private async updateAnalysisStatus(
+    analysis: IAnalysis,
+    status: AnalysisStatus,
+    progress: Partial<AnalysisProgress>
+  ): Promise<void> {
+    analysis.analysisProgress = {
+      ...analysis.analysisProgress,
+      ...progress,
+      status,
+      ...(status === 'complete' ? { completedAt: new Date() } : {}),
+      ...(status === 'in_progress' && !analysis.analysisProgress?.startedAt ? { startedAt: new Date() } : {})
+    };
+    await analysis.save();
+  }
+
   async processAnalysis(analysisId: string): Promise<void> {
     const queueKey = `analysis_${analysisId}`;
     
@@ -216,13 +231,11 @@ export class DatabaseService {
         }
 
         // Update status to in-progress
-        analysis.analysisProgress = {
-          status: 'in_progress',
+        await this.updateAnalysisStatus(analysis, 'in_progress', {
           current: 0,
           total: 100,
           message: 'Starting analysis...'
-        };
-        await analysis.save();
+        });
 
         // Process in smaller chunks with timeouts
         const chunks = 10;
@@ -234,14 +247,13 @@ export class DatabaseService {
           }
 
           // Set new timeout for this chunk
-          const timeout = setTimeout(() => {
-            analysis.analysisProgress = {
-              status: 'failed',
+          const timeout = setTimeout(async () => {
+            await this.updateAnalysisStatus(analysis, 'failed', {
               current: (i / chunks) * 100,
               total: 100,
-              message: 'Analysis timeout'
-            };
-            analysis.save().catch(console.error);
+              message: 'Analysis timeout',
+              error: 'Operation timed out'
+            });
           }, 30000); // 30 second timeout per chunk
 
           this.processingTimeouts.set(analysisId, timeout);
@@ -251,13 +263,15 @@ export class DatabaseService {
             break;
           }
 
-          analysis.analysisProgress = {
-            status: 'in_progress',
-            current: (i / chunks) * 100,
+          const progress = (i / chunks) * 100;
+          const estimatedTimeRemaining = ((chunks - i) * 500) / 1000; // in seconds
+
+          await this.updateAnalysisStatus(analysis, 'in_progress', {
+            current: progress,
             total: 100,
-            message: `Processing ${Math.round((i / chunks) * 100)}% complete...`
-          };
-          await analysis.save();
+            message: `Processing ${Math.round(progress)}% complete...`,
+            estimatedTimeRemaining
+          });
           
           // Add small delay between updates to prevent database overload
           await new Promise(resolve => setTimeout(resolve, 500));
@@ -267,26 +281,23 @@ export class DatabaseService {
         }
 
         // Update final status
-        analysis.analysisProgress = {
-          status: 'complete',
+        await this.updateAnalysisStatus(analysis, 'complete', {
           current: 100,
           total: 100,
           message: 'Analysis completed successfully'
-        };
-        await analysis.save();
+        });
 
       } catch (error) {
         console.error('Analysis processing failed:', error);
         
         const analysis = await Analysis.findById(analysisId);
         if (analysis) {
-          analysis.analysisProgress = {
-            status: 'failed',
+          await this.updateAnalysisStatus(analysis, 'failed', {
             current: 0,
             total: 100,
-            message: error instanceof Error ? error.message : 'Analysis failed'
-          };
-          await analysis.save();
+            message: error instanceof Error ? error.message : 'Analysis failed',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
         }
         
         throw error;

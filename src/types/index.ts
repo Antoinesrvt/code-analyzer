@@ -1,14 +1,16 @@
 import { PerformanceMetrics } from './performance';
 
-export type AnalysisStatus = 'pending' | 'in-progress' | 'complete' | 'error';
+export type AnalysisStatus = 'pending' | 'in_progress' | 'complete' | 'failed';
 
 export interface AnalysisProgress {
-  totalFiles: number;
-  analyzedFiles: number;
-  currentPhase: 'initializing' | 'fetching-repository' | 'analyzing-files' | 'completed' | 'error';
-  estimatedTimeRemaining: number;
-  status: 'in-progress' | 'complete' | 'error';
-  errors: string[];
+  status: AnalysisStatus;
+  current: number;
+  total: number;
+  message: string;
+  error?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+  estimatedTimeRemaining?: number;
 }
 
 export interface FileNode {

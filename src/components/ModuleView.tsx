@@ -24,7 +24,7 @@ export function ModuleView() {
     <div className="w-full h-full relative">
       {/* Progress Banner */}
       <AnimatePresence>
-        {analysisProgress && analysisProgress.status === 'in-progress' && (
+        {analysisProgress && analysisProgress.status === 'in_progress' && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -83,7 +83,7 @@ export function ModuleView() {
               modules={modules}
               files={files}
               onNodeClick={handleNodeClick}
-              analysisInProgress={analysisProgress?.status === 'in-progress'}
+              analysisInProgress={analysisProgress?.status === 'in_progress'}
             />
           </motion.div>
         )}

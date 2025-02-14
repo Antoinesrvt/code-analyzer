@@ -10,12 +10,13 @@ import {
   createUnauthorizedResponse,
   ApiError 
 } from '../utils/apiResponse';
+import type { AnalysisStatus } from '@/types';
 
 // Validation schemas
 const getAnalysisSchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().positive().optional().default(10),
-  status: z.string().optional(),
+  status: z.enum(['pending', 'in_progress', 'complete', 'failed']).optional(),
 });
 
 const createAnalysisSchema = z.object({
@@ -77,9 +78,26 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
         )
       ]);
 
-      if (existingAnalysis?.isExpired && !existingAnalysis.isExpired()) {
-        clearTimeout(timeoutId);
-        return createApiResponse(existingAnalysis);
+      // Check if there's a valid existing analysis
+      if (existingAnalysis) {
+        const status = existingAnalysis.analysisProgress?.status;
+        
+        // Return existing analysis if it's complete and not expired
+        if (status === 'complete' && !existingAnalysis.isExpired()) {
+          clearTimeout(timeoutId);
+          return createApiResponse(existingAnalysis);
+        }
+        
+        // If analysis is in progress, return current progress
+        if (status === 'in_progress' || status === 'pending') {
+          clearTimeout(timeoutId);
+          return createApiResponse({
+            id: existingAnalysis.id,
+            status: status,
+            progress: existingAnalysis.analysisProgress,
+            pollInterval: 2000
+          }, 202);
+        }
       }
 
       // Create new analysis with pending status
@@ -88,7 +106,7 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
         owner: data.owner,
         repo: data.repo,
         analysisProgress: {
-          status: 'pending',
+          status: 'pending' as AnalysisStatus,
           current: 0,
           total: 100,
           message: 'Initializing analysis...'

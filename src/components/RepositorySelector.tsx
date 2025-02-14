@@ -18,14 +18,19 @@ interface RepositorySelectorProps {
 
 async function fetchRepositories(searchQuery: string, plan?: string) {
   try {
-    const baseUrl = searchQuery
-      ? `/api/github/search/repositories`
-      : `/api/github/user/repositories`;
-
+    // Always use user/repositories endpoint
+    const baseUrl = '/api/github/user/repositories';
     const params = new URLSearchParams();
+    
+    // Add search params
     if (searchQuery) params.set('q', searchQuery);
     if (plan) params.set('plan', plan);
-
+    
+    // Add default sorting
+    params.set('sort', 'pushed');
+    params.set('direction', 'desc');
+    params.set('per_page', '30');
+    
     const url = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
 
     const response = await fetch(url, { 
@@ -43,7 +48,19 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
     }
 
     const data = await response.json();
-    return data.data?.repositories || [];
+    
+    // If there's a search query, filter repositories client-side
+    const repositories = data.data?.repositories || [];
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      return repositories.filter(repo => 
+        repo.name.toLowerCase().includes(searchLower) ||
+        repo.description?.toLowerCase().includes(searchLower) ||
+        repo.topics?.some(topic => topic.toLowerCase().includes(searchLower))
+      );
+    }
+    
+    return repositories;
   } catch (error) {
     console.error('Error fetching repositories:', error);
     throw error instanceof Error ? error : new Error(JSON.stringify(error));

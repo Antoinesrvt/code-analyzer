@@ -76,7 +76,7 @@ export type Config = z.infer<typeof serverConfigSchema>;
 export type ClientConfig = z.infer<typeof clientConfigSchema>;
 
 // Get environment variables with validation
-const githubClientId = getEnvVar('NEXT_PUBLIC_GITHUB_CLIENT_ID', true);
+const githubClientId = getEnvVar('NEXT_PUBLIC_GITHUB_CLIENT_ID', false);
 const githubClientSecret = getEnvVar('GITHUB_CLIENT_SECRET', true, '');
 const appUrl = getEnvVar('NEXT_PUBLIC_APP_URL', false, 'http://localhost:3000');
 const sessionSecret = getEnvVar('SESSION_SECRET', true, '');

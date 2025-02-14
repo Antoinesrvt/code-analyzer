@@ -21,9 +21,20 @@ interface AnalyzerState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAnalysisProgress: (progress: AnalysisProgress | null) => void;
-  hydrated: boolean;
-  setHydrated: (state: boolean) => void;
 }
+
+const initialState: Omit<AnalyzerState, 'setRepository' | 'setFiles' | 'setModules' | 'setWorkflow' | 'setLoading' | 'setError' | 'setAnalysisProgress'> = {
+  repository: null,
+  files: [],
+  modules: [],
+  workflow: {
+    nodes: [],
+    edges: [],
+  },
+  loading: false,
+  error: null,
+  analysisProgress: null,
+};
 
 // Create a no-op storage for SSR
 const createNoopStorage = () => ({
@@ -36,17 +47,7 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
   return create<AnalyzerState>()(
     persist(
       (set) => ({
-        repository: null,
-        files: [],
-        modules: [],
-        workflow: {
-          nodes: [],
-          edges: [],
-        },
-        loading: false,
-        error: null,
-        analysisProgress: null,
-        hydrated: false,
+        ...initialState,
         ...preloadedState,
         setRepository: (repo) => set({ repository: repo }),
         setFiles: (files) => set({ files }),
@@ -55,7 +56,6 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
         setLoading: (loading) => set({ loading }),
         setError: (error) => set({ error }),
         setAnalysisProgress: (progress) => set({ analysisProgress: progress }),
-        setHydrated: (state) => set({ hydrated: state }),
       }),
       {
         name: 'analyzer-storage',
@@ -72,11 +72,6 @@ function createStore(preloadedState: Partial<AnalyzerState> = {}) {
           files: state.files,
           modules: state.modules,
         }),
-        onRehydrateStorage: () => (state) => {
-          if (state) {
-            state.setHydrated(true);
-          }
-        },
       }
     )
   );
@@ -96,10 +91,8 @@ export function useStore(initState?: Partial<AnalyzerState>) {
   // For SSR, always return a new store with initial state
   if (typeof window === 'undefined') {
     return createStore({
+      ...initialState,
       ...initState,
-      loading: false,
-      error: null,
-      hydrated: false,
     });
   }
 

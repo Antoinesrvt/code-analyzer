@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes, createCipheriv, createDecipheriv } from 'crypto';
+import type { SessionData, AuthResponse } from '@/types/auth';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/access_token';
 const COOKIE_NAME = 'gh_session';
@@ -8,14 +9,6 @@ interface GitHubTokenResponse {
   access_token: string;
   token_type: string;
   scope: string;
-}
-
-export interface SessionData {
-  accessToken: string;
-  tokenType: string;
-  scope: string;
-  createdAt: number;
-  oauthState?: string;
 }
 
 // Helper function to encrypt session data

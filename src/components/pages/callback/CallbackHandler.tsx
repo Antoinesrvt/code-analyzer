@@ -4,25 +4,11 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { toast } from 'sonner';
+import type { AuthResponse } from '@/types/auth';
 
 interface CallbackHandlerProps {
   code: string;
   state: string;
-}
-
-interface AuthResponse {
-  success: boolean;
-  user?: {
-    id: number;
-    login: string;
-    name: string | null;
-    email: string | null;
-    avatarUrl: string;
-    url: string;
-    type: 'User' | 'Organization';
-  };
-  error?: string;
-  error_description?: string;
 }
 
 export function CallbackHandler({ code, state }: CallbackHandlerProps) {

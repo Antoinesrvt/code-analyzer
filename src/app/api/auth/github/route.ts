@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { encryptSession, decryptSession, type SessionData } from '../[...nextauth]/route';
+import { encryptSession, decryptSession } from '../[...nextauth]/route';
+import type { SessionData } from '@/types/auth';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';

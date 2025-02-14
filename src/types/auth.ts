@@ -2,6 +2,7 @@ export interface User {
   id: number;
   login: string;
   name: string | null;
+  email: string | null;
   avatarUrl: string;
   url: string;
   type: 'User' | 'Organization';
@@ -36,11 +37,34 @@ export interface Repository {
   size: number;
 }
 
+export interface AuthResponse {
+  success: boolean;
+  user?: User;
+  error?: string;
+  error_description?: string;
+}
+
+export interface AuthInitResponse {
+  success: boolean;
+  url?: string;
+  state?: string;
+  error?: string;
+  error_description?: string;
+}
+
+export interface SessionData {
+  accessToken: string;
+  tokenType: string;
+  scope: string;
+  createdAt: number;
+  oauthState?: string;
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
+  user: User | null;
   isLoading: boolean;
   error: string | null;
-  user: User | null;
 }
 
 export interface AuthStore extends AuthState {
@@ -53,11 +77,6 @@ export interface AuthStore extends AuthState {
 export interface GitHubError {
   error: string;
   error_description?: string;
-}
-
-export interface AuthResponse {
-  success: boolean;
-  error?: GitHubError;
 }
 
 export interface OAuthTokenResponse {

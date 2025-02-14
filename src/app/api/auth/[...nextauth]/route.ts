@@ -132,11 +132,31 @@ export async function GET(request: NextRequest) {
     }
 
     const session = decryptSession(sessionCookie.value);
+    
+    // Get user data from GitHub
+    const githubResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${session.accessToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!githubResponse.ok) {
+      console.error('Failed to fetch user data:', await githubResponse.text());
+      return NextResponse.json({ isAuthenticated: false });
+    }
+
+    const userData = await githubResponse.json();
+    
     return NextResponse.json({
       isAuthenticated: true,
-      session: {
-        ...session,
-        accessToken: undefined, // Don't expose token to client
+      user: {
+        id: userData.id,
+        login: userData.login,
+        name: userData.name,
+        email: userData.email,
+        avatarUrl: userData.avatar_url,
+        url: userData.html_url,
       },
     });
   } catch (error) {

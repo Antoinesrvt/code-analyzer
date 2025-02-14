@@ -22,12 +22,16 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
   const { setUser, setLoading, setError } = store();
 
   useEffect(() => {
+    let mounted = true;
+
     async function completeAuthentication() {
       try {
+        if (!mounted) return;
         setLoading(true);
+        setError(null);
 
-        // Exchange code for token with timeout
-        const tokenPromise = fetch('/api/auth/github', {
+        // Exchange code for token
+        const response = await fetch('/api/auth/github', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -36,28 +40,18 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
           body: JSON.stringify({ code, state }),
         });
 
-        // Set a timeout of 10 seconds
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Authentication request timed out')), 10000);
-        });
-
-        const response = await Promise.race([tokenPromise, timeoutPromise]) as Response;
-
         if (!response.ok) {
-          const data: AuthError = await response.json();
-          throw new Error(
-            data.error_description || 
-            data.error || 
-            'Failed to authenticate with GitHub'
-          );
+          const data = await response.json();
+          throw new Error(data.error_description || data.error || 'Failed to authenticate with GitHub');
         }
 
-        // Get user data with timeout
-        const statusPromise = fetch('/api/auth/status', {
+        // Small delay to ensure token is properly set
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Get user data
+        const statusResponse = await fetch('/api/auth/status', {
           credentials: 'include',
         });
-
-        const statusResponse = await Promise.race([statusPromise, timeoutPromise]) as Response;
 
         if (!statusResponse.ok) {
           throw new Error('Failed to get user status');
@@ -65,6 +59,8 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
 
         const statusData = await statusResponse.json();
         
+        if (!mounted) return;
+
         if (statusData.isAuthenticated && statusData.user) {
           setUser(statusData.user);
           toast.success('Successfully signed in!', {
@@ -75,6 +71,7 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
           throw new Error('Authentication failed: User data not available');
         }
       } catch (err) {
+        if (!mounted) return;
         console.error('Authentication error:', err);
         const errorMessage = err instanceof Error ? err.message : 'An error occurred during authentication';
         setError(errorMessage);
@@ -83,11 +80,17 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
         });
         router.push(`/?error=${encodeURIComponent(errorMessage)}`);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
     completeAuthentication();
+
+    return () => {
+      mounted = false;
+    };
   }, [code, state, router, setUser, setLoading, setError]);
 
   return (

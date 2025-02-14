@@ -10,10 +10,20 @@ interface CallbackHandlerProps {
   state: string;
 }
 
-interface AuthError {
-  error: string;
+
+interface AuthResponse {
+  success: boolean;
+  user?: {
+    id: number;
+    login: string;
+    name: string | null;
+    email: string | null;
+    avatarUrl: string;
+    url: string;
+    type: 'User' | 'Organization';
+  };
+  error?: string;
   error_description?: string;
-  error_uri?: string;
 }
 
 export function CallbackHandler({ code, state }: CallbackHandlerProps) {
@@ -40,23 +50,22 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
           body: JSON.stringify({ code, state }),
         });
 
-        if (!response.ok) {
-          const data = await response.json();
+        const data: AuthResponse = await response.json();
+
+        if (!response.ok || !data.success) {
           throw new Error(data.error_description || data.error || 'Failed to authenticate with GitHub');
         }
 
-        const data = await response.json();
-        
         if (!mounted) return;
 
-        if (data.success && data.user) {
+        if (data.user) {
           setUser(data.user);
           toast.success('Successfully signed in!', {
             description: `Welcome back, ${data.user.name || data.user.login}!`,
           });
           router.push('/dashboard');
         } else {
-          throw new Error('Authentication failed: Invalid response from server');
+          throw new Error('Authentication failed: No user data received');
         }
       } catch (err) {
         if (!mounted) return;

@@ -4,6 +4,13 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
+interface GitHubAuthResponse {
+  success: boolean;
+  url?: string;
+  error?: string;
+  error_description?: string;
+}
+
 export function LoginButton() {
   const store = useAuthStore();
   const { isAuthenticated, isLoading, setLoading, setError } = store();
@@ -18,12 +25,16 @@ export function LoginButton() {
         credentials: 'include',
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error_description || error.error || 'Failed to initialize login');
+      const data: GitHubAuthResponse = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error_description || data.error || 'Failed to initialize login');
       }
 
-      const data = await response.json();
+      if (!data.url) {
+        throw new Error('No authorization URL returned');
+      }
+
       router.push(data.url);
     } catch (error) {
       console.error('Login error:', error);

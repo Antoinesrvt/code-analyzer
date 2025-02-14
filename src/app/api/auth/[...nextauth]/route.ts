@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
         email: userData.email,
         avatarUrl: userData.avatar_url,
         url: userData.html_url,
+        type: userData.type || 'User',
       }
     });
     
@@ -185,6 +186,7 @@ export async function GET(request: NextRequest) {
         email: userData.email,
         avatarUrl: userData.avatar_url,
         url: userData.html_url,
+        type: userData.type || 'User',
       },
     });
   } catch (error) {

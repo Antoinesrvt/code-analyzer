@@ -19,16 +19,7 @@ export async function GET() {
     const state = randomUUID();
     const timestamp = Date.now();
 
-    // Create session data
-    const sessionData = {
-      isAuthenticated: false,
-      oauthState: {
-        value: state,
-        timestamp
-      }
-    };
-
-    // Create response with OAuth URL
+    // Create OAuth URL
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
       redirect_uri: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 'http://localhost:3000/auth/callback',
@@ -37,16 +28,17 @@ export async function GET() {
     });
 
     const response = NextResponse.json({
+      success: true,
       url: `${GITHUB_OAUTH_URL}?${params}`,
-      state
+      state,
     });
 
-    // Set session cookie in response
-    response.cookies.set(SESSION_COOKIE, JSON.stringify(sessionData), {
+    // Set state cookie for validation
+    response.cookies.set('oauth_state', state, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+      maxAge: STATE_TIMEOUT / 1000, // Convert to seconds
     });
 
     return response;
@@ -54,6 +46,7 @@ export async function GET() {
     console.error('GitHub auth initialization error:', error);
     return NextResponse.json(
       {
+        success: false,
         error: 'server_error',
         error_description: error instanceof Error ? error.message : 'Failed to initialize GitHub OAuth'
       },

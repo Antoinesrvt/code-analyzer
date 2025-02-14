@@ -10,7 +10,6 @@ interface CallbackHandlerProps {
   state: string;
 }
 
-
 interface AuthResponse {
   success: boolean;
   user?: {

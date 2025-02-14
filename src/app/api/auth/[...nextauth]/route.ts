@@ -10,15 +10,16 @@ interface GitHubTokenResponse {
   scope: string;
 }
 
-interface SessionData {
+export interface SessionData {
   accessToken: string;
   tokenType: string;
   scope: string;
   createdAt: number;
+  oauthState?: string;
 }
 
 // Helper function to encrypt session data
-function encryptSession(data: SessionData): string {
+export function encryptSession(data: SessionData): string {
   const key = process.env.SESSION_SECRET!;
   const iv = randomBytes(16);
   const cipher = createCipheriv('aes-256-gcm', Buffer.from(key), iv);

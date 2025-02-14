@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
+import { encryptSession, decryptSession, type SessionData } from '../[...nextauth]/route';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -15,11 +16,9 @@ interface GitHubTokenResponse {
 // GET handler for initiating OAuth flow
 export async function GET() {
   try {
-    // Generate state and timestamp
     const state = randomUUID();
     const timestamp = Date.now();
 
-    // Create OAuth URL
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
       redirect_uri: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 'http://localhost:3000/auth/callback',
@@ -33,12 +32,20 @@ export async function GET() {
       state,
     });
 
-    // Set state cookie for validation
-    response.cookies.set('oauth_state', state, {
+    // Set state cookie for validation using encryption
+    const stateSession: SessionData = {
+      accessToken: '',
+      tokenType: '',
+      scope: '',
+      createdAt: timestamp,
+      oauthState: state
+    };
+
+    response.cookies.set('oauth_state', encryptSession(stateSession), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: STATE_TIMEOUT / 1000, // Convert to seconds
+      maxAge: STATE_TIMEOUT / 1000,
     });
 
     return response;
@@ -64,6 +71,7 @@ export async function POST(request: NextRequest) {
     if (!code || !state) {
       return NextResponse.json(
         {
+          success: false,
           error: 'invalid_request',
           error_description: 'Missing code or state parameter'
         },
@@ -71,36 +79,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get session from cookie
-    const sessionCookie = request.cookies.get(SESSION_COOKIE);
-    if (!sessionCookie?.value) {
+    // Get and validate state from encrypted cookie
+    const stateCookie = request.cookies.get('oauth_state');
+    if (!stateCookie?.value) {
       return NextResponse.json(
         {
-          error: 'invalid_session',
-          error_description: 'No session found'
+          success: false,
+          error: 'invalid_state',
+          error_description: 'No state cookie found'
         },
         { status: 400 }
       );
     }
 
-    const session = JSON.parse(sessionCookie.value);
-
-    // Validate state
-    if (!session?.oauthState?.value || session.oauthState.value !== state) {
+    const stateSession = decryptSession(stateCookie.value);
+    if (stateSession.oauthState !== state) {
       return NextResponse.json(
         {
+          success: false,
           error: 'invalid_state',
-          error_description: 'Invalid or missing state parameter'
+          error_description: 'Invalid state parameter'
         },
         { status: 400 }
       );
     }
 
     // Check state timeout
-    const stateAge = Date.now() - (session.oauthState.timestamp || 0);
+    const stateAge = Date.now() - stateSession.createdAt;
     if (stateAge > STATE_TIMEOUT) {
       return NextResponse.json(
         {
+          success: false,
           error: 'state_expired',
           error_description: 'State parameter has expired'
         },
@@ -133,6 +142,7 @@ export async function POST(request: NextRequest) {
       console.error('Token exchange error:', error);
       return NextResponse.json(
         {
+          success: false,
           error: error.error || 'token_exchange_failed',
           error_description: error.error_description || 'Failed to exchange code for token'
         },
@@ -142,22 +152,51 @@ export async function POST(request: NextRequest) {
 
     const data: GitHubTokenResponse = await tokenResponse.json();
 
-    // Create new session with token
-    const newSession = {
-      isAuthenticated: true,
+    // Fetch user data immediately
+    const githubResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${data.access_token}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!githubResponse.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'user_data_failed',
+          error_description: 'Failed to fetch user data'
+        },
+        { status: 400 }
+      );
+    }
+
+    const userData = await githubResponse.json();
+
+    // Create new session
+    const newSession: SessionData = {
       accessToken: data.access_token,
       tokenType: data.token_type,
       scope: data.scope,
-      user: session?.user || null,
-      // Remove oauthState as it's no longer needed
-      oauthState: undefined
+      createdAt: Date.now(),
     };
 
-    // Create response with new session
-    const response = NextResponse.json({ success: true });
+    // Create response with user data
+    const response = NextResponse.json({
+      success: true,
+      user: {
+        id: userData.id,
+        login: userData.login,
+        name: userData.name,
+        email: userData.email,
+        avatarUrl: userData.avatar_url,
+        url: userData.html_url,
+        type: userData.type || 'User',
+      }
+    });
 
-    // Set session cookie in response
-    response.cookies.set(SESSION_COOKIE, JSON.stringify(newSession), {
+    // Set encrypted session cookie
+    response.cookies.set(SESSION_COOKIE, encryptSession(newSession), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -169,6 +208,7 @@ export async function POST(request: NextRequest) {
     console.error('GitHub auth callback error:', error);
     return NextResponse.json(
       {
+        success: false,
         error: 'server_error',
         error_description: error instanceof Error ? error.message : 'Failed to complete GitHub OAuth'
       },

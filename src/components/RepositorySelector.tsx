@@ -41,15 +41,22 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
         );
         
         if (!response.ok) {
-          throw new Error('Failed to fetch repositories');
+          const errorData = await response.json();
+          throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
         }
         
         const data = await response.json();
-        setRepositories(data.repositories || []);
+        if (!Array.isArray(data.repositories)) {
+          throw new Error('Invalid response format from server');
+        }
+        
+        setRepositories(data.repositories);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to fetch repositories';
         setError(message);
-        toast.error(message);
+        toast.error('Failed to load repositories', {
+          description: message
+        });
       } finally {
         setLoading(false);
       }

@@ -113,8 +113,9 @@ export async function GET(
     const path = params.path.join('/');
     const url = new URL(path, GITHUB_API_URL);
     
-    // Forward search params
+    // Forward search params except 'plan'
     const searchParams = new URLSearchParams(request.nextUrl.searchParams);
+    searchParams.delete('plan'); // Remove plan parameter before forwarding to GitHub
     if (searchParams.size > 0) {
       url.search = searchParams.toString();
     }
@@ -127,7 +128,18 @@ export async function GET(
       },
     });
 
-    return handleGitHubResponse(githubResponse);
+    const responseData = await githubResponse.json();
+
+    // If this is a repository request, format the response
+    if (path === 'user/repositories' || path.includes('search/repositories')) {
+      return NextResponse.json({
+        repositories: Array.isArray(responseData.items || responseData) 
+          ? (responseData.items || responseData)
+          : []
+      });
+    }
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('GitHub proxy error:', error);
     return NextResponse.json(

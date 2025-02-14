@@ -4,23 +4,15 @@ import { z } from 'zod';
 function getEnvVar(key: string, required: boolean = true, defaultValue: string = ''): string {
   // Check if we're on the client side
   const isClient = typeof window !== 'undefined';
-  
-  // For client-side, only allow NEXT_PUBLIC_ variables
-  if (isClient && !key.startsWith('NEXT_PUBLIC_')) {
-    return defaultValue;
+  const value = process.env[key];
+
+  if (required && (!value || value.length === 0)) {
+    throw new Error(
+      `Environment variable ${key} is required but not set. ` +
+      `Please check your .env file and make sure it's properly loaded.`
+    );
   }
 
-  const value = process.env[key];
-  if (required && (!value || value.length === 0)) {
-    // Only throw for server-side or NEXT_PUBLIC_ variables on client-side
-    if (!isClient || key.startsWith('NEXT_PUBLIC_')) {
-      throw new Error(
-        `Environment variable ${key} is required but not set. ` +
-        `Please check your .env file and make sure it's properly loaded.`
-      );
-    }
-    return defaultValue;
-  }
   return value || defaultValue;
 }
 
@@ -30,20 +22,12 @@ const clientConfigSchema = z.object({
     clientId: z.string().min(1, {
       message: "NEXT_PUBLIC_GITHUB_CLIENT_ID is required in your environment variables"
     }),
-    redirectUri: z.string().url({
-      message: "Invalid redirect URI format. Please check your NEXT_PUBLIC_APP_URL"
-    }),
-    scopes: z.array(z.string()).min(1, {
-      message: "At least one GitHub scope is required"
-    }),
-    apiBaseUrl: z.string().url({
-      message: "Invalid GitHub API base URL format"
-    }),
+    redirectUri: z.string(),
+    scopes: z.array(z.string()).min(1),
+    apiBaseUrl: z.string().url(),
   }),
   api: z.object({
-    baseUrl: z.string().url({
-      message: "Invalid base URL format. Please check your NEXT_PUBLIC_APP_URL"
-    }),
+    baseUrl: z.string(),
     timeout: z.number().min(1000),
     retryCount: z.number().min(1),
     rateLimitDelay: z.number().min(100),
@@ -60,14 +44,10 @@ const clientConfigSchema = z.object({
 // Full schema including server-side only fields
 const serverConfigSchema = clientConfigSchema.extend({
   github: clientConfigSchema.shape.github.extend({
-    clientSecret: z.string().min(1, {
-      message: "GITHUB_CLIENT_SECRET is required in your environment variables"
-    }),
+    clientSecret: z.string().min(1),
   }),
   auth: clientConfigSchema.shape.auth.extend({
-    sessionSecret: z.string().min(32, {
-      message: "SESSION_SECRET must be at least 32 characters long"
-    }),
+    sessionSecret: z.string().min(32),
     sessionMaxAge: z.number().min(60),
   }),
 });
@@ -75,11 +55,13 @@ const serverConfigSchema = clientConfigSchema.extend({
 export type Config = z.infer<typeof serverConfigSchema>;
 export type ClientConfig = z.infer<typeof clientConfigSchema>;
 
+const isClient = typeof window !== 'undefined';
+
 // Get environment variables with validation
-const githubClientId = getEnvVar('NEXT_PUBLIC_GITHUB_CLIENT_ID', false);
-const githubClientSecret = getEnvVar('GITHUB_CLIENT_SECRET', true, '');
-const appUrl = getEnvVar('NEXT_PUBLIC_APP_URL', false, 'http://localhost:3000');
-const sessionSecret = getEnvVar('SESSION_SECRET', true, '');
+const githubClientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || '';
+const githubClientSecret = !isClient ? (process.env.GITHUB_CLIENT_SECRET || '') : '';
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+const sessionSecret = !isClient ? (process.env.SESSION_SECRET || '') : '';
 
 const config = {
   github: {
@@ -108,7 +90,6 @@ const config = {
 
 // Validate config based on environment
 try {
-  const isClient = typeof window !== 'undefined';
   if (isClient) {
     // On client-side, only validate public config
     const clientConfig = {

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { User } from '@/types/auth';
 import type { IUser } from '@/models/User';
+import React from 'react';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -76,7 +77,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
 
-  // Auth status query
+  // Auth status query with better caching and rehydration
   const { data: authData, isLoading, error } = useQuery({
     queryKey: ['auth'],
     queryFn: checkAuthStatus,
@@ -84,7 +85,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     staleTime: 1000 * 60 * 5, // 5 minutes
     refetchOnWindowFocus: true,
     refetchInterval: 1000 * 60 * 30, // 30 minutes
+    refetchOnMount: true,
+    initialData: () => {
+      // Try to get initial data from localStorage
+      const cached = localStorage.getItem('auth');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          return parsed;
+        } catch (e) {
+          localStorage.removeItem('auth');
+        }
+      }
+      return undefined;
+    },
   });
+
+  // Cache auth data in localStorage
+  React.useEffect(() => {
+    if (authData) {
+      localStorage.setItem('auth', JSON.stringify(authData));
+    }
+  }, [authData]);
+
+  // Clear cache on logout
+  const clearAuthCache = () => {
+    localStorage.removeItem('auth');
+    queryClient.setQueryData(['auth'], {
+      isAuthenticated: false,
+      githubUser: null,
+      dbUser: null,
+    });
+    queryClient.invalidateQueries({ queryKey: ['auth'] });
+  };
 
   // Login mutation
   const loginMutation = useMutation({
@@ -99,16 +132,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
-  // Logout mutation
+  // Logout mutation with cache clearing
   const logoutMutation = useMutation({
     mutationFn: logoutUser,
     onSuccess: () => {
-      queryClient.setQueryData(['auth'], {
-        isAuthenticated: false,
-        githubUser: null,
-        dbUser: null,
-      });
-      queryClient.invalidateQueries({ queryKey: ['auth'] });
+      clearAuthCache();
       toast.success('Successfully logged out');
     },
     onError: (error) => {

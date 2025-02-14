@@ -17,37 +17,51 @@ interface RepositorySelectorProps {
 }
 
 async function fetchRepositories(searchQuery: string, plan?: string) {
-  const response = await fetch(
-    searchQuery
-      ? `/api/github/search/repositories?q=${encodeURIComponent(searchQuery)}${plan ? `&plan=${plan}` : ''}`
-      : `/api/github/user/repositories${plan ? `?plan=${plan}` : ''}`,
-    { credentials: 'include' }
-  );
+  try {
+    const response = await fetch(
+      searchQuery
+        ? `/api/github/search/repositories?q=${encodeURIComponent(searchQuery)}${plan ? `&plan=${plan}` : ''}`
+        : `/api/github/user/repositories${plan ? `?plan=${plan}` : ''}`,
+      { 
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      }
+    );
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
+    }
+
+    const data = await response.json();
+    return Array.isArray(data.repositories) ? data.repositories : [];
+  } catch (error) {
+    console.error('Error fetching repositories:', error);
+    throw error;
   }
-
-  const data = await response.json();
-  if (!Array.isArray(data.repositories)) {
-    throw new Error('Invalid response format from server');
-  }
-
-  return data.repositories;
 }
 
 export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const { githubUser, dbUser } = useAuth();
+  const { githubUser, dbUser, isAuthenticated } = useAuth();
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  const { data: repositories, isLoading, error } = useQuery({
+  const { 
+    data: repositories = [], 
+    isLoading, 
+    error,
+    refetch
+  } = useQuery({
     queryKey: ['repositories', debouncedSearch, dbUser?.plan],
     queryFn: () => fetchRepositories(debouncedSearch, dbUser?.plan),
-    enabled: !!githubUser,
+    enabled: !!githubUser && isAuthenticated,
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 2,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false
   });
 
   // Show error toast when query fails
@@ -58,6 +72,16 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
       });
     }
   }, [error]);
+
+  // Retry loading if no repositories are found
+  React.useEffect(() => {
+    if (repositories.length === 0 && !isLoading && !error && githubUser) {
+      const timer = setTimeout(() => {
+        refetch();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [repositories.length, isLoading, error, githubUser, refetch]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">
@@ -84,12 +108,30 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
           {isLoading ? (
             <RepositoryListSkeleton />
           ) : error ? (
-            <div className="text-center text-destructive py-4">
-              {error instanceof Error ? error.message : 'Failed to load repositories'}
+            <div className="text-center py-4">
+              <p className="text-destructive mb-2">
+                {error instanceof Error ? error.message : 'Failed to load repositories'}
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => refetch()}
+                className="mt-2"
+              >
+                Try Again
+              </Button>
             </div>
           ) : !repositories?.length ? (
-            <div className="text-center text-muted-foreground py-4">
-              No repositories found
+            <div className="text-center py-4">
+              <p className="text-muted-foreground mb-2">
+                {searchQuery ? 'No repositories found matching your search' : 'No repositories found'}
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => refetch()}
+                className="mt-2"
+              >
+                Refresh
+              </Button>
             </div>
           ) : (
             repositories.map((repo) => (

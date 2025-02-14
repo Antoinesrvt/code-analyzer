@@ -19,7 +19,20 @@ const DEFAULT_HEADERS = {
   'X-GitHub-Api-Version': '2022-11-28'
 };
 
-// Validation schemas
+// Validation schemas for repository endpoints
+const repoParamsSchema = z.object({
+  q: z.string().optional(),
+  page: z.coerce.number().int().positive().optional().default(1),
+  per_page: z.coerce.number().int().positive().optional().default(30),
+  sort: z.enum(['created', 'updated', 'pushed', 'full_name']).optional().default('pushed'),
+  direction: z.enum(['asc', 'desc']).optional().default('desc'),
+  type: z.enum(['all', 'owner', 'public', 'private', 'member']).optional().default('all'),
+  affiliation: z.string().optional(),
+  visibility: z.enum(['all', 'public', 'private']).optional(),
+  plan: z.string().optional(),
+});
+
+// General search params schema for other endpoints
 const searchParamsSchema = z.object({
   q: z.string().optional(),
   page: z.coerce.number().int().positive().optional().default(1),
@@ -94,18 +107,8 @@ async function handleGitHubResponse(response: Response) {
   return apiResponse;
 }
 
-export const GET = withValidation(searchParamsSchema, async (data, request: NextRequest) => {
+export const GET = withValidation(repoParamsSchema, async (data, request: NextRequest) => {
   try {
-    // Get path parameters from request headers
-    const pathParamsHeader = request.headers.get('x-path-params');
-    if (!pathParamsHeader) {
-      return createErrorResponse(
-        new ApiError('invalid_request', 'Missing path parameters', 400)
-      );
-    }
-
-    const pathParams = JSON.parse(pathParamsHeader);
-
     // Get session cookie
     const sessionCookie = request.cookies.get(SESSION_COOKIE);
     if (!sessionCookie?.value) {
@@ -118,20 +121,49 @@ export const GET = withValidation(searchParamsSchema, async (data, request: Next
       return createUnauthorizedResponse('Invalid session format');
     }
 
+    // Extract path from URL
+    const url = new URL(request.url);
+    const pathMatch = url.pathname.match(/^\/api\/github\/(.+)$/);
+    if (!pathMatch) {
+      throw new ApiError('invalid_request', 'Invalid API path', 400);
+    }
+
     // Build GitHub API URL
-    const path = pathParams.join('/');
-    const url = new URL(path, GITHUB_API_URL);
-    
-    // Forward validated search params except 'plan'
-    const { plan, ...searchParams } = data;
-    Object.entries(searchParams).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.set(key, value.toString());
-      }
-    });
+    const githubPath = pathMatch[1];
+    let githubUrl: URL;
+
+    // Handle repository endpoints specifically
+    if (githubPath === 'user/repositories' || githubPath === 'search/repositories') {
+      // For user repositories, use the /user/repos endpoint
+      githubUrl = new URL(githubPath === 'user/repositories' ? '/user/repos' : '/search/repositories', GITHUB_API_URL);
+      
+      // Forward validated params except 'plan'
+      const { plan, ...params } = data;
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) {
+          // Convert affiliation array to comma-separated string if present
+          if (key === 'affiliation' && Array.isArray(value)) {
+            githubUrl.searchParams.set(key, value.join(','));
+          } else {
+            githubUrl.searchParams.set(key, value.toString());
+          }
+        }
+      });
+    } else {
+      // For other endpoints, use the path as is
+      githubUrl = new URL(githubPath, GITHUB_API_URL);
+      
+      // Forward search params for non-repository endpoints
+      const { plan, ...searchParams } = data;
+      Object.entries(searchParams).forEach(([key, value]) => {
+        if (value !== undefined) {
+          githubUrl.searchParams.set(key, value.toString());
+        }
+      });
+    }
 
     // Forward request to GitHub API
-    const githubResponse = await fetch(url.toString(), {
+    const githubResponse = await fetch(githubUrl.toString(), {
       headers: {
         ...DEFAULT_HEADERS,
         'Authorization': `Bearer ${session.accessToken}`,
@@ -147,7 +179,7 @@ export const GET = withValidation(searchParamsSchema, async (data, request: Next
       );
     }
     return createErrorResponse(
-      new ApiError('server_error', 'Internal server error', 500)
+      error instanceof ApiError ? error : new ApiError('server_error', 'Internal server error', 500)
     );
   }
 });

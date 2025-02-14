@@ -5,7 +5,8 @@ import {
   createApiResponse, 
   createErrorResponse, 
   createTimeoutResponse, 
-  createUnauthorizedResponse 
+  createUnauthorizedResponse,
+  ApiError
 } from '../../utils/apiResponse';
 
 const SESSION_COOKIE = 'gh_session';
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
             'User-Agent': 'GitHub-Code-Analyzer',
           },
           signal: controller.signal,
-          cache: 'no-store', // Disable caching for this request
+          cache: 'no-store',
         });
 
         clearTimeout(timeoutId);
@@ -100,7 +101,9 @@ export async function GET(request: NextRequest) {
     }
   } catch (error) {
     console.error('Status check error:', error);
-    return createErrorResponse(error);
+    return createErrorResponse(
+      error instanceof ApiError ? error : new ApiError('server_error', 'Failed to check status', 500)
+    );
   }
 }
 

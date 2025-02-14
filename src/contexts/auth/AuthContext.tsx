@@ -40,6 +40,7 @@ async function checkAuthStatus() {
   const response = await fetch('/api/auth/status', {
     credentials: 'include',
     headers: {
+      'Accept': 'application/json',
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache'
     }
@@ -47,14 +48,14 @@ async function checkAuthStatus() {
   
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error_description || error.error || 'Failed to check authentication status');
+    throw new Error(error.error?.message || error.error_description || error.error || 'Failed to check authentication status');
   }
   
   const data = await response.json();
   return {
-    isAuthenticated: data.isAuthenticated,
-    githubUser: data.user || null,
-    dbUser: data.dbUser || null,
+    isAuthenticated: data.data?.isAuthenticated ?? false,
+    githubUser: data.data?.user || null,
+    dbUser: data.data?.dbUser || null,
     timestamp: Date.now(),
   };
 }
@@ -86,14 +87,20 @@ async function logoutUser() {
   const response = await fetch('/api/auth/logout', {
     method: 'POST',
     credentials: 'include',
+    headers: {
+      'Accept': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    }
   });
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error_description || error.error || 'Failed to logout');
+    throw new Error(error.error?.message || error.error_description || error.error || 'Failed to logout');
   }
 
-  return response.json();
+  const data = await response.json();
+  return data.data;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);

@@ -110,11 +110,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isClient, setIsClient] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = React.useState(false);
 
   // Set isClient to true on mount
   React.useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Get initial data from localStorage only on client-side
+  const getInitialData = React.useCallback(() => {
+    if (!isClient) return undefined;
+    
+    try {
+      const cached = localStorage.getItem('auth');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const age = Date.now() - (parsed.timestamp || 0);
+        if (age > SESSION_EXPIRY) {
+          localStorage.removeItem('auth');
+          return undefined;
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to read auth cache:', e);
+    }
+    return undefined;
+  }, [isClient]);
+
+  // Initialize query client with cached data
+  React.useEffect(() => {
+    if (isClient && !isInitialized) {
+      const cachedData = getInitialData();
+      if (cachedData) {
+        queryClient.setQueryData(['auth'], cachedData);
+      }
+      setIsInitialized(true);
+    }
+  }, [isClient, isInitialized, queryClient, getInitialData]);
 
   // Auth status query with session expiry check
   const queryOptions: UseQueryOptions<AuthData, Error> = {
@@ -134,31 +167,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return age > REFRESH_INTERVAL ? REFRESH_INTERVAL : false;
     },
     refetchOnMount: true,
-    enabled: isClient,
+    enabled: isClient && isInitialized,
+    initialData: getInitialData,
   };
 
   const { data: authData, isLoading, error: queryError } = useQuery<AuthData, Error>(queryOptions);
-
-  // Handle auth errors
-  React.useEffect(() => {
-    if (queryError) {
-      setError(queryError.message);
-      if (queryError.message.includes('401')) {
-        clearAuthCache();
-      }
-    }
-  }, [queryError]);
-
-  // Check session expiry
-  React.useEffect(() => {
-    if (authData?.timestamp) {
-      const age = Date.now() - authData.timestamp;
-      if (age > SESSION_EXPIRY) {
-        clearAuthCache();
-        setError('Session expired. Please login again.');
-      }
-    }
-  }, [authData?.timestamp]);
 
   // Cache auth data in localStorage only on client-side
   React.useEffect(() => {
@@ -251,32 +264,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearError = () => setError(null);
 
-  // Get initial data from localStorage only on client-side
-  const getInitialData = () => {
-    if (!isClient) return undefined;
-    
-    try {
-      const cached = localStorage.getItem('auth');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const age = Date.now() - (parsed.timestamp || 0);
-        if (age > SESSION_EXPIRY) {
-          localStorage.removeItem('auth');
-          return undefined;
-        }
-        return parsed;
-      }
-    } catch (e) {
-      console.error('Failed to read auth cache:', e);
-    }
-    return undefined;
-  };
-
   const value: AuthContextType = {
     isAuthenticated: authData?.isAuthenticated ?? false,
     githubUser: authData?.githubUser ?? null,
     dbUser: authData?.dbUser ?? null,
-    isLoading: !isClient || isLoading,
+    isLoading: !isClient || !isInitialized || isLoading,
     isRefreshing,
     error: error || (queryError instanceof Error ? queryError.message : null),
     login,

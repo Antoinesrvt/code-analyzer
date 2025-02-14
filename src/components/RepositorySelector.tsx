@@ -18,29 +18,35 @@ interface RepositorySelectorProps {
 
 async function fetchRepositories(searchQuery: string, plan?: string) {
   try {
-    const response = await fetch(
-      searchQuery
-        ? `/api/github/search/repositories?q=${encodeURIComponent(searchQuery)}${plan ? `&plan=${plan}` : ''}`
-        : `/api/github/user/repositories${plan ? `?plan=${plan}` : ''}`,
-      { 
-        credentials: 'include',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
+    const baseUrl = searchQuery
+      ? `/api/github/search/repositories`
+      : `/api/github/user/repositories`;
+
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    if (plan) params.set('plan', plan);
+
+    const url = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const response = await fetch(url, { 
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       }
-    );
+    });
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error_description || errorData.error || 'Failed to fetch repositories');
+      throw new Error(errorData.error?.message || errorData.error_description || errorData.error || 'Failed to fetch repositories');
     }
 
     const data = await response.json();
-    return Array.isArray(data.repositories) ? data.repositories : [];
+    return data.data?.repositories || [];
   } catch (error) {
     console.error('Error fetching repositories:', error);
-    throw error;
+    throw error instanceof Error ? error : new Error(JSON.stringify(error));
   }
 }
 
@@ -59,7 +65,12 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
     queryFn: () => fetchRepositories(debouncedSearch, dbUser?.plan),
     enabled: !!githubUser && isAuthenticated,
     staleTime: 1000 * 60 * 5, // 5 minutes
-    retry: 2,
+    retry: (failureCount, error) => {
+      // Don't retry on 400 errors
+      if (error instanceof Error && error.message.includes('400')) return false;
+      return failureCount < 2;
+    },
+    retryDelay: 1000,
     refetchOnMount: true,
     refetchOnWindowFocus: false
   });

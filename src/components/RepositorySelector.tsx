@@ -20,7 +20,7 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { githubUser } = useAuth();
+  const { githubUser, dbUser } = useAuth();
   
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -32,10 +32,11 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
         setLoading(true);
         setError(null);
         
+        const planParam = dbUser ? `&plan=${dbUser.plan}` : '';
         const response = await fetch(
           debouncedSearch
-            ? `/api/github/search/repositories?q=${encodeURIComponent(debouncedSearch)}`
-            : '/api/github/user/repositories',
+            ? `/api/github/search/repositories?q=${encodeURIComponent(debouncedSearch)}${planParam}`
+            : `/api/github/user/repositories${planParam ? `?${planParam.slice(1)}` : ''}`,
           { credentials: 'include' }
         );
         
@@ -55,7 +56,7 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
     };
 
     fetchRepositories();
-  }, [debouncedSearch, githubUser]);
+  }, [debouncedSearch, githubUser, dbUser]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">
@@ -70,6 +71,11 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
             className="w-full pl-10 h-12 bg-background/60 backdrop-blur-sm"
           />
         </div>
+        {dbUser && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Your {dbUser.plan} plan allows you to analyze {dbUser.plan === 'basic' ? 'one repository' : dbUser.plan === 'standard' ? 'up to three repositories' : 'unlimited repositories'}
+          </p>
+        )}
       </div>
 
       <div className="space-y-3">

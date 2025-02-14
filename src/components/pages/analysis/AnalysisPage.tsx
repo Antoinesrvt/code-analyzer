@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/contexts/auth/AuthContext";
 
 interface AnalysisPageProps {
   owner: string;
@@ -35,11 +36,13 @@ interface AnalysisPageProps {
 export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
   const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
   const router = useRouter();
+  const { dbUser } = useAuth();
   const { 
     isLoading, 
     error, 
     analysisProgress, 
     selectedRepo,
+    analyzedRepos,
     startAnalysis,
     clearAnalysis
   } = useRepository();
@@ -51,6 +54,18 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
       if (!mounted) return;
       
       try {
+        // Check plan limits
+        if (dbUser) {
+          const maxRepos = dbUser.plan === 'basic' ? 1 : dbUser.plan === 'standard' ? 3 : Infinity;
+          if (analyzedRepos.length >= maxRepos) {
+            toast.error('Plan limit reached', {
+              description: `Your ${dbUser.plan} plan allows ${maxRepos} ${maxRepos === 1 ? 'repository' : 'repositories'}. Please upgrade to analyze more.`,
+            });
+            router.push('/dashboard');
+            return;
+          }
+        }
+
         await startAnalysis(owner, repo);
         
         toast.success('Analysis completed!', {
@@ -71,7 +86,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
       mounted = false;
       clearAnalysis();
     };
-  }, [owner, repo, startAnalysis, clearAnalysis]);
+  }, [owner, repo, startAnalysis, clearAnalysis, dbUser, analyzedRepos.length, router]);
 
   if (error) {
     return (

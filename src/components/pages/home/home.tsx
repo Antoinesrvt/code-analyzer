@@ -18,8 +18,23 @@ import { useRouter } from "next/navigation";
 export default function Home() {
   const router = useRouter();
   const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
-  const { isAuthenticated, githubUser } = useAuth();
+  const { isAuthenticated, githubUser, dbUser } = useAuth();
   const { selectedRepo, isLoading, error } = useRepository();
+
+  // Add plan-specific messaging
+  const getPlanMessage = () => {
+    if (!dbUser) return null;
+    switch (dbUser.plan) {
+      case 'basic':
+        return 'Basic plan: Analyze one repository at a time';
+      case 'standard':
+        return 'Standard plan: Keep track of up to three repositories';
+      case 'premium':
+        return 'Premium plan: Unlimited repository analysis';
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -112,6 +127,13 @@ export default function Home() {
         </div>
       </header>
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        {isAuthenticated && dbUser && (
+          <div className="mb-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              {getPlanMessage()}
+            </p>
+          </div>
+        )}
         <motion.div
           key="landing"
           initial={{ opacity: 0, y: 20 }}

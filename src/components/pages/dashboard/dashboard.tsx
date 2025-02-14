@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 
 export default function Dashboard() {
   const router = useRouter();
-  const { githubUser } = useAuth();
+  const { githubUser, dbUser } = useAuth();
   const { analyzedRepos, selectRepository } = useRepository();
   const [showRepoSelector, setShowRepoSelector] = React.useState(false);
 
@@ -43,8 +43,13 @@ export default function Dashboard() {
                 <h1 className="text-2xl font-semibold">
                   Welcome, {githubUser?.name || githubUser?.login}
                 </h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
                   Manage your repository analyses
+                  {dbUser && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      {dbUser.plan.charAt(0).toUpperCase() + dbUser.plan.slice(1)} Plan
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

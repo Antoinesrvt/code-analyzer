@@ -1,9 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { toast } from 'sonner';
+
+interface CallbackHandlerProps {
+  code: string;
+  state: string;
+}
 
 interface AuthError {
   error: string;
@@ -11,40 +16,15 @@ interface AuthError {
   error_uri?: string;
 }
 
-export function CallbackHandler() {
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+export function CallbackHandler({ code, state }: CallbackHandlerProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const store = useAuthStore();
-  const { setUser, setLoading: setAuthLoading, setError: setAuthError } = store();
+  const { setUser, setLoading, setError } = store();
 
   useEffect(() => {
-    async function handleCallback() {
+    async function completeAuthentication() {
       try {
-        // Check for OAuth error response
-        const oauthError = searchParams.get('error');
-        if (oauthError) {
-          const description = searchParams.get('error_description');
-          const uri = searchParams.get('error_uri');
-          throw new Error(description || `Authentication failed: ${oauthError}`);
-        }
-
-        const code = searchParams.get('code');
-        const state = searchParams.get('state');
-
-        if (!code || !state) {
-          setError('Missing required OAuth parameters');
-          setLoading(false);
-          return;
-        }
-
-        // Validate state parameter length (should be UUID)
-        if (state.length !== 36) {
-          throw new Error('Invalid state parameter');
-        }
-
-        setAuthLoading(true);
+        setLoading(true);
 
         // Exchange code for token with timeout
         const tokenPromise = fetch('/api/auth/github', {
@@ -95,66 +75,32 @@ export function CallbackHandler() {
           throw new Error('Authentication failed: User data not available');
         }
       } catch (err) {
-        console.error('Callback error:', err);
+        console.error('Authentication error:', err);
         const errorMessage = err instanceof Error ? err.message : 'An error occurred during authentication';
         setError(errorMessage);
-        setAuthError(errorMessage);
         toast.error('Authentication failed', {
           description: errorMessage,
         });
+        router.push(`/?error=${encodeURIComponent(errorMessage)}`);
       } finally {
         setLoading(false);
-        setAuthLoading(false);
       }
     }
 
-    handleCallback();
-  }, [searchParams, router, setUser, setAuthLoading, setAuthError]);
+    completeAuthentication();
+  }, [code, state, router, setUser, setLoading, setError]);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="mb-4 text-2xl font-semibold text-gray-900">
-            Completing authentication...
-          </div>
-          <div className="text-sm text-gray-600 mb-4">
-            Verifying your GitHub credentials
-          </div>
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="mb-4 text-2xl font-semibold text-gray-900">
+          Completing authentication...
         </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
-          <div className="mb-4 text-2xl font-semibold text-red-600">Authentication Error</div>
-          <div className="text-gray-600 mb-6">{error}</div>
-          <div className="space-y-4">
-            <button
-              onClick={() => router.push('/')}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
-                       transition-colors duration-300 focus:outline-none focus:ring-2 
-                       focus:ring-blue-500 focus:ring-offset-2"
-            >
-              Return Home
-            </button>
-            <button
-              onClick={() => router.refresh()}
-              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
-                       transition-colors duration-300 focus:outline-none focus:ring-2 
-                       focus:ring-gray-500 focus:ring-offset-2"
-            >
-              Try Again
-            </button>
-          </div>
+        <div className="text-sm text-gray-600 mb-4">
+          Verifying your GitHub credentials
         </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
       </div>
-    );
-  }
-
-  return null;
+    </div>
+  );
 } 

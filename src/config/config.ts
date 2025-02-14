@@ -1,21 +1,39 @@
 import { z } from 'zod';
 
+// Helper function to get environment variables with better error messages
+function getEnvVar(key: string, required: boolean = true): string {
+  const value = process.env[key];
+  if (required && (!value || value.length === 0)) {
+    throw new Error(
+      `Environment variable ${key} is required but not set. ` +
+      `Please check your .env file and make sure it's properly loaded.`
+    );
+  }
+  return value || '';
+}
+
 const configSchema = z.object({
   github: z.object({
-    clientId: z
-      .string()
-      .min(1, { message: "NEXT_PUBLIC_GITHUB_CLIENT_ID is required" }),
-    clientSecret: z
-      .string()
-      .min(1, { message: "GITHUB_CLIENT_SECRET is required" }),
-    redirectUri: z.string().url({ message: "Invalid redirect URI format" }),
-    scopes: z
-      .array(z.string())
-      .min(1, { message: "At least one scope is required" }),
-    apiBaseUrl: z.string().url({ message: "Invalid API base URL format" }),
+    clientId: z.string().min(1, {
+      message: "NEXT_PUBLIC_GITHUB_CLIENT_ID is required in your environment variables"
+    }),
+    clientSecret: z.string().min(1, {
+      message: "GITHUB_CLIENT_SECRET is required in your environment variables"
+    }),
+    redirectUri: z.string().url({
+      message: "Invalid redirect URI format. Please check your NEXT_PUBLIC_APP_URL"
+    }),
+    scopes: z.array(z.string()).min(1, {
+      message: "At least one GitHub scope is required"
+    }),
+    apiBaseUrl: z.string().url({
+      message: "Invalid GitHub API base URL format"
+    }),
   }),
   api: z.object({
-    baseUrl: z.string().url({ message: "Invalid base URL format" }),
+    baseUrl: z.string().url({
+      message: "Invalid base URL format. Please check your NEXT_PUBLIC_APP_URL"
+    }),
     timeout: z.number().min(1000),
     retryCount: z.number().min(1),
     rateLimitDelay: z.number().min(100),
@@ -24,10 +42,10 @@ const configSchema = z.object({
     loginPath: z.string(),
     callbackPath: z.string(),
     logoutPath: z.string(),
-    sessionSecret: z
-      .string()
-      .min(32, { message: "Session secret must be at least 32 characters" }),
-    sessionMaxAge: z.number().min(60), // minimum 1 minute
+    sessionSecret: z.string().min(32, {
+      message: "SESSION_SECRET must be at least 32 characters long"
+    }),
+    sessionMaxAge: z.number().min(60),
     cookieName: z.string().min(1),
     secureCookie: z.boolean(),
   }),
@@ -35,32 +53,34 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+// Get environment variables with validation
+const githubClientId = getEnvVar('NEXT_PUBLIC_GITHUB_CLIENT_ID');
+const githubClientSecret = getEnvVar('GITHUB_CLIENT_SECRET');
+const appUrl = getEnvVar('NEXT_PUBLIC_APP_URL', false) || 'http://localhost:3000';
+const sessionSecret = getEnvVar('SESSION_SECRET');
+
 const config = {
   github: {
-    clientId: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || "",
-    clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
-    redirectUri: process.env.NEXT_PUBLIC_APP_URL
-      ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`
-      : "http://localhost:3000/auth/callback",
-    scopes: ["repo", "read:user", "user:email"],
-    apiBaseUrl: "https://api.github.com",
+    clientId: githubClientId,
+    clientSecret: githubClientSecret,
+    redirectUri: `${appUrl}/auth/callback`,
+    scopes: ['repo', 'read:user', 'user:email'],
+    apiBaseUrl: 'https://api.github.com',
   },
   api: {
-    baseUrl: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    timeout: 10000, // 10 seconds
+    baseUrl: appUrl,
+    timeout: 10000,
     retryCount: 3,
-    rateLimitDelay: 1000, // 1 second
+    rateLimitDelay: 1000,
   },
   auth: {
-    loginPath: "/auth/login",
-    callbackPath: "/auth/callback",
-    logoutPath: "/auth/logout",
-    sessionSecret:
-      process.env.SESSION_SECRET ||
-      "your-development-only-secret-key-min-32-chars",
+    loginPath: '/auth/login',
+    callbackPath: '/auth/callback',
+    logoutPath: '/auth/logout',
+    sessionSecret: sessionSecret,
     sessionMaxAge: 60 * 60 * 24 * 7, // 1 week
-    cookieName: "gh_session",
-    secureCookie: process.env.NODE_ENV === "production",
+    cookieName: 'gh_session',
+    secureCookie: process.env.NODE_ENV === 'production',
   },
 } as const;
 
@@ -68,7 +88,15 @@ const config = {
 try {
   configSchema.parse(config);
 } catch (error) {
-  console.error('Configuration validation failed:', error);
+  console.error('Configuration validation failed. Please check your environment variables:');
+  if (error instanceof z.ZodError) {
+    error.errors.forEach((err) => {
+      console.error(`- ${err.message}`);
+      if (err.path) {
+        console.error(`  Path: ${err.path.join('.')}`);
+      }
+    });
+  }
   throw error;
 }
 

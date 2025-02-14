@@ -186,9 +186,9 @@ export class DifferentialService {
         changes,
         moduleChanges,
         performanceMetrics: {
-          analysisTime: metrics.totalTime || 0,
-          apiCalls: metrics.apiCalls || 0,
-          memoryUsage: metrics.memoryUsage || 0
+          analysisTime: metrics.totalDuration || 0,
+          apiCalls: metrics.networkCalls.length || 0,
+          memoryUsage: metrics.resources.memory.reduce((sum, usage) => sum + usage.value, 0) || 0
         }
       };
     } catch (error) {

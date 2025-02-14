@@ -89,7 +89,7 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
         }
         
         // If analysis is in progress, return current progress
-        if (status === 'in_progress' || status === 'pending') {
+        if (status === 'analyzing' || status === 'idle') {
           clearTimeout(timeoutId);
           return createApiResponse({
             id: existingAnalysis.id,
@@ -100,13 +100,13 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
         }
       }
 
-      // Create new analysis with pending status
+      // Create new analysis with idle status
       const analysis = await databaseService.createAnalysis({
         githubId: session.githubId,
         owner: data.owner,
         repo: data.repo,
         analysisProgress: {
-          status: 'pending' as AnalysisStatus,
+          status: 'idle' as AnalysisStatus,
           current: 0,
           total: 100,
           message: 'Initializing analysis...'
@@ -114,7 +114,17 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
       });
 
       // Start analysis in the background without waiting
-      databaseService.processAnalysis(analysis.id).catch(error => {
+      databaseService.processAnalysis(analysis.id, {
+        onProgress: async (progress) => {
+          console.log('Analysis progress:', progress);
+        },
+        onComplete: async (data) => {
+          console.log('Analysis complete:', data);
+        },
+        onError: async (error) => {
+          console.error('Analysis error:', error);
+        }
+      }).catch(error => {
         console.error('Background analysis failed:', error);
       });
 
@@ -123,7 +133,7 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
       // Return immediately with the pending analysis
       return createApiResponse({
         id: analysis.id,
-        status: 'pending',
+        status: 'idle',
         message: 'Analysis started',
         pollInterval: 2000
       }, 202);

@@ -1,5 +1,5 @@
 import { Octokit } from '@octokit/rest';
-import type { FileNode, Module, AnalysisProgress } from '@/types';
+import type { FileNode, Module, AnalysisProgress, AnalysisStatus } from '@/types';
 import type { Repository, User } from '@/types/auth';
 import type { AnalysisPerformanceMetrics } from '@/types/performance';
 import { performanceMonitor } from '../monitoring/performanceService';
@@ -15,12 +15,10 @@ const getTimeMs = () => {
 const BATCH_SIZE = 10;
 
 const defaultAnalysisProgress: AnalysisProgress = {
-  totalFiles: 0,
-  analyzedFiles: 0,
-  currentPhase: 'initializing',
-  estimatedTimeRemaining: 0,
-  status: 'in-progress',
-  errors: [],
+  status: 'idle' as AnalysisStatus,
+  current: 0,
+  total: 100,
+  message: 'Initializing analysis...'
 };
 
 // Use the existing type from RepositoryContext
@@ -95,27 +93,13 @@ export class GitHubService {
   }
 
   private updateProgress(update: Partial<AnalysisProgress>) {
-    try {
-      this.analysisProgress = {
-        ...this.analysisProgress,
-        ...update,
-      };
-      if (this.currentProgressCallback) {
-        this.currentProgressCallback(this.analysisProgress);
-      }
-    } catch (error) {
-      console.error('Error updating progress:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update analysis progress';
-      if (this.currentErrorCallback) {
-        this.currentErrorCallback(errorMessage);
-      }
-      if (this.currentProgressCallback) {
-        this.currentProgressCallback({
-          ...defaultAnalysisProgress,
-          status: 'error',
-          errors: [errorMessage],
-        });
-      }
+    this.analysisProgress = {
+      ...this.analysisProgress,
+      ...update
+    };
+
+    if (this.currentProgressCallback) {
+      this.currentProgressCallback(this.analysisProgress);
     }
   }
 
@@ -145,102 +129,80 @@ export class GitHubService {
     repo: string,
     path: string = ''
   ): AsyncGenerator<FileNode[], void, unknown> {
-    const operationId = `fetch-files-${path || 'root'}`;
-    
     try {
       const octokit = await this.ensureAuthenticated();
-      workflowMonitor.startOperation(operationId);
-      
-      const { data } = await workflowMonitor.executeWithRetry(
-        `api-call-${operationId}`,
-        () => octokit.rest.repos.getContent({ owner, repo, path }),
-        { timeout: config.api.timeout }
-      );
+      let page = 1;
+      let hasMore = true;
+      let totalFiles = 0;
 
-      if (!Array.isArray(data)) {
-        throw new Error('Invalid repository path');
-      }
+      while (hasMore) {
+        // Update progress with current status
+        this.updateProgress({
+          status: 'analyzing',
+          message: `Fetching files from ${path || 'root'}...`,
+          current: totalFiles,
+          total: Math.max(totalFiles, page * BATCH_SIZE) // Estimate total
+        });
 
-      // Update total files count
-      const currentTotal = this.analysisProgress.totalFiles;
-      this.updateProgress({
-        totalFiles: currentTotal + data.length,
-        currentPhase: 'analyzing-files',
-        status: 'in-progress',
-      });
+        const response = await octokit.repos.getContent({
+          owner,
+          repo,
+          path,
+          per_page: BATCH_SIZE,
+          page,
+        });
 
-      const files: FileNode[] = [];
-      for (let i = 0; i < data.length; i += BATCH_SIZE) {
-        const batchOperationId = `process-batch-${path}-${i}`;
-        workflowMonitor.startOperation(batchOperationId);
+        const data = Array.isArray(response.data) ? response.data : [response.data];
         
-        try {
-          const batch = data.slice(i, i + BATCH_SIZE);
-          const batchFiles = await Promise.all(
-            batch.map(async (item) => {
-              const fileNode: FileNode = {
-                id: item.sha,
-                path: item.path,
-                type: item.type === 'dir' ? 'directory' : 'file',
-                size: item.size,
-                modules: [],
-                dependencies: [],
-                analysisStatus: 'pending',
-              };
-
-              if (item.type === 'dir') {
-                // Update progress to show we're processing a directory
-                this.updateProgress({
-                  currentPhase: 'analyzing-files',
-                  status: 'in-progress',
-                });
-
-                const subFilesGenerator = this.getFilesProgressively(owner, repo, item.path);
-                for await (const subFiles of subFilesGenerator) {
-                  fileNode.children = subFiles;
-                  fileNode.analysisStatus = 'complete';
-                }
-              } else {
-                fileNode.analysisStatus = 'complete';
-                // Update analyzed files count
-                this.updateProgress({
-                  analyzedFiles: this.analysisProgress.analyzedFiles + 1,
-                });
-              }
-
-              return fileNode;
-            })
-          );
-
-          files.push(...batchFiles);
-          workflowMonitor.endOperation(batchOperationId, 'success');
-          yield batchFiles;
-        } catch (error) {
-          workflowMonitor.endOperation(batchOperationId, 'error', 
-            error instanceof Error ? error : new Error(String(error))
-          );
-          throw error;
+        if (data.length === 0) {
+          hasMore = false;
+          continue;
         }
+
+        // Process files
+        const files: FileNode[] = [];
+        for (const item of data) {
+          const node: FileNode = {
+            id: item.sha,
+            path: item.path,
+            type: item.type === 'dir' ? 'directory' : 'file',
+            size: item.size,
+            modules: [],
+            dependencies: [],
+            analysisStatus: 'idle'
+          };
+
+          if (item.type === 'dir') {
+            this.updateProgress({
+              status: 'analyzing',
+              message: `Analyzing directory: ${item.path}`,
+              current: totalFiles,
+              total: Math.max(totalFiles, page * BATCH_SIZE)
+            });
+
+            const subFilesGenerator = this.getFilesProgressively(owner, repo, item.path);
+            for await (const subFiles of subFilesGenerator) {
+              node.children = subFiles;
+              files.push(...subFiles);
+            }
+          } else {
+            files.push(node);
+          }
+
+          totalFiles++;
+        }
+
+        yield files;
+        page++;
       }
-
-      workflowMonitor.endOperation(operationId, 'success');
     } catch (error) {
-      workflowMonitor.endOperation(operationId, 'error',
-        error instanceof Error ? error : new Error(String(error))
-      );
-      
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : 'Unknown error occurred while fetching files';
-
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.updateProgress({
         status: 'error',
-        currentPhase: 'error',
-        errors: [...this.analysisProgress.errors, errorMessage],
+        message: `Failed to fetch files: ${errorMessage}`,
+        error: errorMessage
       });
-
-      console.error('Failed to fetch files:', error);
-      throw new Error(errorMessage);
+      throw error;
     }
   }
 
@@ -382,147 +344,77 @@ export class GitHubService {
     onProgress?: (progress: AnalysisProgress) => void,
     onError?: (error: string) => void
   ): Promise<AnalyzedRepo> {
-    if (typeof window === 'undefined') {
-      throw new Error('Cannot analyze repository during SSR');
-    }
-
-    this.currentProgressCallback = onProgress || null;
-    this.currentErrorCallback = onError || null;
-
-    const operationId = 'analyze-repository';
-    workflowMonitor.startOperation(operationId);
+    const startTime = getTimeMs();
     
     try {
-      const octokit = await this.ensureAuthenticated();
-      performanceMonitor.startMonitoring();
-      const startTime = getTimeMs();
+      this.currentProgressCallback = onProgress || null;
+      this.currentErrorCallback = onError || null;
       
-      // Initialize progress
-      this.analysisProgress = { ...defaultAnalysisProgress };
+      // Reset progress
       this.updateProgress({
-        currentPhase: 'initializing',
-        status: 'in-progress',
+        status: 'idle',
+        message: 'Initializing analysis...',
+        current: 0,
+        total: 100
       });
-      if (onProgress) onProgress(this.analysisProgress);
 
-      const { owner: ownerName, repo: repoName } = this.extractRepoInfo(url);
+      const { owner, repo } = this.extractRepoInfo(url);
       
-      // Update progress for repository fetching
+      // Update progress for repository fetch
       this.updateProgress({
-        currentPhase: 'fetching-repository',
-        status: 'in-progress',
+        status: 'analyzing',
+        message: 'Fetching repository data...',
+        current: 0,
+        total: 100
       });
-      if (onProgress) onProgress(this.analysisProgress);
 
-      // Fetch repository data
-      const { data: repoData } = await workflowMonitor.executeWithRetry(
-        'fetch-repo-data',
-        () => octokit.rest.repos.get({ owner: ownerName, repo: repoName }),
-        { timeout: config.api.timeout }
-      );
-
-      const repoOwner: User = {
-        id: repoData.owner.id,
-        email: repoData.owner.email || null,
-        login: repoData.owner.login,
-        name: repoData.owner.name || null,
-        avatarUrl: repoData.owner.avatar_url,
-        url: repoData.owner.url,
-        type: repoData.owner.type as 'User' | 'Organization',
-      };
-
-      const repository: Repository = {
-        id: repoData.id,
-        name: repoData.name,
-        fullName: repoData.full_name,
-        description: repoData.description || '',
-        owner: repoOwner,
-        url: repoData.html_url,
-        gitUrl: repoData.git_url,
-        sshUrl: repoData.ssh_url,
-        cloneUrl: repoData.clone_url,
-        defaultBranch: repoData.default_branch,
-        visibility: repoData.visibility as 'public' | 'private' | 'internal',
-        createdAt: repoData.created_at,
-        updatedAt: repoData.updated_at,
-        pushedAt: repoData.pushed_at,
-        isPrivate: repoData.private,
-        isFork: repoData.fork,
-        permissions: {
-          admin: repoData.permissions?.admin || false,
-          maintain: repoData.permissions?.maintain,
-          push: repoData.permissions?.push || false,
-          triage: repoData.permissions?.triage,
-          pull: repoData.permissions?.pull || false,
-        },
-        topics: repoData.topics || [],
-        language: repoData.language,
-        size: repoData.size,
-      };
-
-      // Update progress for file analysis
-      this.updateProgress({
-        currentPhase: 'analyzing-files',
-        status: 'in-progress',
-        totalFiles: 0, // Will be updated as we discover files
-        analyzedFiles: 0,
-      });
-      if (onProgress) onProgress(this.analysisProgress);
-
-      const fileAnalysisStream = this.getFilesProgressively(ownerName, repoName);
-      const modules: Module[] = [];
-      let processedFiles: FileNode[] = [];
-
-      for await (const batch of fileAnalysisStream) {
-        processedFiles = [...processedFiles, ...batch];
+      const repository = await this.getRepositoryData(owner, repo);
+      const processedFiles: FileNode[] = [];
+      
+      // Process files progressively
+      const filesGenerator = this.getFilesProgressively(owner, repo);
+      for await (const files of filesGenerator) {
+        processedFiles.push(...files);
         
         // Update progress with file analysis status
+        const progress = Math.min(Math.round((processedFiles.length / (processedFiles.length + 10)) * 100), 95);
         this.updateProgress({
-          analyzedFiles: processedFiles.length,
+          status: 'analyzing',
+          message: `Processing files (${processedFiles.length} found)...`,
+          current: progress,
+          total: 100,
           estimatedTimeRemaining: this.calculateEstimatedTime(
-            processedFiles.length,
-            this.analysisProgress.totalFiles,
+            progress,
+            100,
             startTime
-          ),
+          )
         });
-        if (onProgress) onProgress(this.analysisProgress);
-
-        const newModules = await this.analyzeModulesProgressively(batch);
-        modules.push(...newModules);
       }
 
-      // Update progress for completion
+      // Update final progress
       this.updateProgress({
-        currentPhase: 'completed',
         status: 'complete',
-        estimatedTimeRemaining: 0,
-        analyzedFiles: processedFiles.length,
-        totalFiles: processedFiles.length,
+        message: 'Analysis completed successfully',
+        current: 100,
+        total: 100,
+        completedAt: new Date()
       });
-      if (onProgress) onProgress(this.analysisProgress);
 
-      workflowMonitor.endOperation(operationId, 'success');
-      workflowMonitor.logMetrics();
-      
-      const analyzedRepo: AnalyzedRepo = {
+      return {
         ...repository,
         lastAnalyzed: new Date().toISOString(),
         files: processedFiles,
-        modules: modules,
-        performanceMetrics: performanceMonitor.getMetrics(),
-        analysisProgress: this.analysisProgress,
+        modules: await this.analyzeModulesProgressively(processedFiles),
+        analysisProgress: this.analysisProgress
       };
-
-      return analyzedRepo;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred while analyzing repository';
-      if (this.currentErrorCallback) {
-        this.currentErrorCallback(errorMessage);
-      }
-      throw new Error(errorMessage);
-    } finally {
-      this.currentProgressCallback = null;
-      this.currentErrorCallback = null;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.updateProgress({
+        status: 'error',
+        message: `Analysis failed: ${errorMessage}`,
+        error: errorMessage
+      });
+      throw error;
     }
   }
 }

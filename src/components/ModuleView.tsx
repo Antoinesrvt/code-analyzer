@@ -4,7 +4,7 @@ import { useRepository } from '@/contexts/repository/RepositoryContext';
 import { GraphNode, ModuleGraph } from './ModuleGraph';
 import { ModuleSkeleton } from './ModuleSkeleton';
 import { PerformanceReport } from './PerformanceReport';
-import { ProgressBanner } from './ProgressBanner';
+import { AnalysisProgress } from './AnalysisProgress';
 
 export function ModuleView() {
   const { modules, files, isLoading, selectedRepo, analysisProgress } = useRepository();
@@ -22,16 +22,17 @@ export function ModuleView() {
 
   return (
     <div className="w-full h-full relative">
-      {/* Progress Banner */}
+      {/* Progress Indicator */}
       <AnimatePresence>
-        {analysisProgress && analysisProgress.status === 'in_progress' && (
+        {analysisProgress && analysisProgress.status === "analyzing" && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-0 left-0 right-0 z-20"
           >
-            <ProgressBanner progress={analysisProgress} />
+            <AnalysisProgress />
+          {/* <ProgressBanner progress={analysisProgress} /> */}
           </motion.div>
         )}
       </AnimatePresence>
@@ -44,7 +45,7 @@ export function ModuleView() {
                    transition-colors duration-300 focus:outline-none focus:ring-2 
                    focus:ring-blue-500 focus:ring-offset-2"
         >
-          {showPerformance ? 'Hide Performance' : 'Show Performance'}
+          {showPerformance ? "Hide Performance" : "Show Performance"}
         </button>
       </div>
 
@@ -83,7 +84,7 @@ export function ModuleView() {
               modules={modules}
               files={files}
               onNodeClick={handleNodeClick}
-              analysisInProgress={analysisProgress?.status === 'in_progress'}
+              analysisInProgress={analysisProgress?.status === "analyzing"}
             />
           </motion.div>
         )}

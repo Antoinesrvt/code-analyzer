@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRepository } from '@/contexts/repository/RepositoryContext';
 import { WorkflowGraph } from '@/components/workflow/WorkflowGraph';
 import { WorkflowSkeleton } from '@/components/workflow/WorkflowSkeleton';
-import { ProgressBanner } from './ProgressBanner';
+import { AnalysisProgress } from './AnalysisProgress';
 
 export function WorkflowView() {
   const { workflow, isLoading, selectedRepo, analysisProgress } = useRepository();
@@ -15,16 +15,16 @@ export function WorkflowView() {
 
   return (
     <div className="w-full h-full relative">
-      {/* Progress Banner */}
+      {/* Progress Indicator */}
       <AnimatePresence>
-        {analysisProgress && analysisProgress.status === 'in_progress' && (
+        {analysisProgress && analysisProgress.status === 'analyzing' && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-0 left-0 right-0 z-20"
           >
-            <ProgressBanner progress={analysisProgress} />
+            <AnalysisProgress />
           </motion.div>
         )}
       </AnimatePresence>
@@ -52,7 +52,7 @@ export function WorkflowView() {
             <WorkflowGraph
               nodes={workflow.nodes}
               edges={workflow.edges}
-              analysisInProgress={analysisProgress?.status === 'in_progress'}
+              analysisInProgress={analysisProgress?.status === 'analyzing'}
             />
           </motion.div>
         )}

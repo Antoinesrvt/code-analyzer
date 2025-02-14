@@ -4,6 +4,12 @@ import type { Repository } from '@/types/auth';
 import type { AnalysisProgress, FileNode, Module, AnalysisStatus } from '@/types';
 import { userService } from './userService';
 
+interface AnalysisHandlers {
+  onProgress: (progress: number) => Promise<void>;
+  onComplete: (data: any) => Promise<void>;
+  onError: (error: Error) => Promise<void>;
+}
+
 export class DatabaseService {
   private static instance: DatabaseService;
   private analysisQueue = new Map<string, Promise<void>>();
@@ -198,19 +204,19 @@ export class DatabaseService {
   private async updateAnalysisStatus(
     analysis: IAnalysis,
     status: AnalysisStatus,
-    progress: Partial<AnalysisProgress>
+    progress: { current: number; total: number; message: string }
   ): Promise<void> {
     analysis.analysisProgress = {
       ...analysis.analysisProgress,
       ...progress,
       status,
       ...(status === 'complete' ? { completedAt: new Date() } : {}),
-      ...(status === 'in_progress' && !analysis.analysisProgress?.startedAt ? { startedAt: new Date() } : {})
+      ...(status === 'analyzing' && !analysis.analysisProgress?.startedAt ? { startedAt: new Date() } : {})
     };
     await analysis.save();
   }
 
-  async processAnalysis(analysisId: string): Promise<void> {
+  async processAnalysis(analysisId: string, handlers: AnalysisHandlers): Promise<void> {
     const queueKey = `analysis_${analysisId}`;
     
     // Check if analysis is already being processed
@@ -225,17 +231,30 @@ export class DatabaseService {
           throw new Error('Analysis not found');
         }
 
+        // Check if analysis is already in progress
+        if (analysis.analysisProgress?.status === 'analyzing') {
+          return; // Already being processed
+        }
+
         // Prevent duplicate processing
         if (analysis.analysisProgress?.status === 'complete') {
+          await handlers.onComplete({
+            id: analysis.id,
+            status: 'complete' as AnalysisStatus,
+            data: analysis
+          });
           return;
         }
 
-        // Update status to in-progress
-        await this.updateAnalysisStatus(analysis, 'in_progress', {
+        // Update status to analyzing
+        analysis.analysisProgress = {
+          status: 'analyzing' as AnalysisStatus,
           current: 0,
           total: 100,
-          message: 'Starting analysis...'
-        });
+          message: 'Starting analysis...',
+          startedAt: new Date()
+        };
+        await analysis.save();
 
         // Process in smaller chunks with timeouts
         const chunks = 10;
@@ -248,32 +267,32 @@ export class DatabaseService {
 
           // Set new timeout for this chunk
           const timeout = setTimeout(async () => {
-            await this.updateAnalysisStatus(analysis, 'failed', {
-              current: (i / chunks) * 100,
-              total: 100,
-              message: 'Analysis timeout',
-              error: 'Operation timed out'
-            });
+            await handlers.onError(new Error('Analysis timeout'));
           }, 30000); // 30 second timeout per chunk
 
           this.processingTimeouts.set(analysisId, timeout);
 
-          if (analysis.analysisProgress?.status === 'failed') {
+          if (analysis.analysisProgress?.status === 'error') {
             clearTimeout(timeout);
-            break;
+            throw new Error('Analysis failed');
           }
 
           const progress = (i / chunks) * 100;
-          const estimatedTimeRemaining = ((chunks - i) * 500) / 1000; // in seconds
 
-          await this.updateAnalysisStatus(analysis, 'in_progress', {
+          // Update progress
+          analysis.analysisProgress = {
+            ...analysis.analysisProgress,
             current: progress,
             total: 100,
             message: `Processing ${Math.round(progress)}% complete...`,
-            estimatedTimeRemaining
-          });
+            estimatedTimeRemaining: ((chunks - i) * 3000) // 3 seconds per chunk remaining
+          };
+          await analysis.save();
           
-          // Add small delay between updates to prevent database overload
+          // Notify progress
+          await handlers.onProgress(progress);
+          
+          // Add small delay between updates
           await new Promise(resolve => setTimeout(resolve, 500));
           
           // Clear successful chunk timeout
@@ -281,10 +300,21 @@ export class DatabaseService {
         }
 
         // Update final status
-        await this.updateAnalysisStatus(analysis, 'complete', {
+        analysis.analysisProgress = {
+          status: 'complete' as AnalysisStatus,
           current: 100,
           total: 100,
-          message: 'Analysis completed successfully'
+          message: 'Analysis completed successfully',
+          completedAt: new Date(),
+          startedAt: analysis.analysisProgress?.startedAt
+        };
+        await analysis.save();
+
+        // Notify completion
+        await handlers.onComplete({
+          id: analysis.id,
+          status: 'complete' as AnalysisStatus,
+          data: analysis
         });
 
       } catch (error) {
@@ -292,15 +322,17 @@ export class DatabaseService {
         
         const analysis = await Analysis.findById(analysisId);
         if (analysis) {
-          await this.updateAnalysisStatus(analysis, 'failed', {
+          analysis.analysisProgress = {
+            status: 'error' as AnalysisStatus,
             current: 0,
             total: 100,
             message: error instanceof Error ? error.message : 'Analysis failed',
             error: error instanceof Error ? error.message : 'Unknown error'
-          });
+          };
+          await analysis.save();
         }
         
-        throw error;
+        await handlers.onError(error instanceof Error ? error : new Error('Unknown error'));
       } finally {
         // Clean up
         this.analysisQueue.delete(queueKey);

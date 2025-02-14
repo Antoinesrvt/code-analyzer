@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import type { FileNode, Module, AnalysisProgress } from '../types';
+import type { FileNode, Module, AnalysisProgress, AnalysisStatus } from '../types';
 import type { Repository } from '../types/auth';
 import type { PerformanceMetrics } from '../types/performance';
 
@@ -21,8 +21,9 @@ const FileNodeSchema = new Schema({
   children: [{ type: Schema.Types.Mixed }], // Recursive reference
   analysisStatus: { 
     type: String, 
-    enum: ['pending', 'in-progress', 'complete', 'error'],
-    required: true 
+    enum: ['idle', 'analyzing', 'complete', 'error'],
+    required: true,
+    default: 'idle'
   }
 });
 
@@ -52,8 +53,9 @@ const ModuleSchema = new Schema({
   },
   analysisStatus: { 
     type: String, 
-    enum: ['pending', 'in-progress', 'complete', 'error'],
-    required: true 
+    enum: ['idle', 'analyzing', 'complete', 'error'],
+    required: true,
+    default: 'idle'
   }
 });
 
@@ -64,21 +66,21 @@ const PerformanceMetricsSchema = new Schema({
   timestamp: { type: Date, default: Date.now }
 });
 
+// Using the new AnalysisProgress type
 const AnalysisProgressSchema = new Schema({
-  totalFiles: { type: Number, required: true },
-  analyzedFiles: { type: Number, required: true },
-  currentPhase: { 
-    type: String, 
-    enum: ['initializing', 'fetching-repository', 'analyzing-files', 'completed', 'error'],
-    required: true 
-  },
-  estimatedTimeRemaining: { type: Number, required: true },
   status: { 
     type: String, 
-    enum: ['in-progress', 'complete', 'error'],
-    required: true 
+    enum: ['idle', 'analyzing', 'complete', 'error'],
+    required: true,
+    default: 'idle'
   },
-  errors: [{ type: String }]
+  current: { type: Number, required: true, default: 0 },
+  total: { type: Number, required: true, default: 100 },
+  message: { type: String, required: true, default: 'Initializing analysis...' },
+  error: String,
+  startedAt: Date,
+  completedAt: Date,
+  estimatedTimeRemaining: Number
 });
 
 // Commit Analysis Schema for storing differences

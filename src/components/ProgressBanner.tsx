@@ -27,7 +27,7 @@ export function ProgressBanner({ progress }: ProgressBannerProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              {progress.status === 'failed' ? (
+              {progress.status === "error" ? (
                 <AlertTriangle className="w-5 h-5 text-red-500" />
               ) : (
                 <Clock className="w-5 h-5 text-blue-500" />

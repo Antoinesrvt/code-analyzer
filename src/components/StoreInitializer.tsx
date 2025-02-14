@@ -5,6 +5,7 @@ import { useStore } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAnalyzedReposStore } from '@/store/useAnalyzedReposStore';
 import { toast } from 'sonner';
+import { ClientOnly } from '@/components/ClientOnly';
 
 interface StoreInitializerProps {
   children: React.ReactNode;
@@ -14,87 +15,56 @@ export function StoreInitializer({ children }: StoreInitializerProps) {
   const [isHydrated, setIsHydrated] = useState(false);
   const [initError, setInitError] = useState<Error | null>(null);
 
+  // Use store hooks properly
+  const mainStore = useStore();
+  const authStore = useAuthStore();
+  const analyzedReposStore = useAnalyzedReposStore();
+
   useEffect(() => {
     try {
-      // Initialize all stores
-      const mainStore = useStore();
-      const authStore = useAuthStore();
-      const analyzedReposStore = useAnalyzedReposStore();
+      // Initialize stores by accessing them
+      const storesInitialized = !!mainStore && !!authStore && !!analyzedReposStore;
 
       // Log store initialization for debugging in production
-      console.debug('Store initialization:', {
-        mainStore: !!mainStore,
-        authStore: !!authStore,
-        analyzedReposStore: !!analyzedReposStore,
-        timestamp: new Date().toISOString()
-      });
-
-      // Subscribe to store changes for debugging
       if (process.env.NODE_ENV === 'production') {
-        // Create store instances
-        const mainStoreInstance = mainStore();
-        const authStoreInstance = authStore();
-
-        // Log initial states
-        console.debug('Initial store states:', {
-          main: {
-            hasRepository: !!mainStoreInstance.repository,
-            filesCount: mainStoreInstance.files.length,
-            modulesCount: mainStoreInstance.modules.length,
-            isLoading: mainStoreInstance.loading,
-            hasError: !!mainStoreInstance.error,
-          },
-          auth: {
-            isAuthenticated: authStoreInstance.isAuthenticated,
-            hasUser: !!authStoreInstance.user,
-            isLoading: authStoreInstance.isLoading,
-            hasError: !!authStoreInstance.error,
-          }
+        console.debug('Store initialization:', {
+          storesInitialized,
+          timestamp: new Date().toISOString()
         });
 
-        // Set up state change listeners
-        const unsubscribeMain = mainStore.subscribe?.(
-          (state) => {
-            console.debug('Main store update:', {
-              hasRepository: !!state.repository,
-              filesCount: state.files.length,
-              modulesCount: state.modules.length,
-              isLoading: state.loading,
-              hasError: !!state.error,
-              timestamp: new Date().toISOString()
-            });
-          }
-        );
+        // Access store states safely
+        const mainState = mainStore();
+        const authState = authStore();
 
-        const unsubscribeAuth = authStore.subscribe?.(
-          (state) => {
-            console.debug('Auth store update:', {
-              isAuthenticated: state.isAuthenticated,
-              hasUser: !!state.user,
-              isLoading: state.isLoading,
-              hasError: !!state.error,
-              timestamp: new Date().toISOString()
-            });
+        // Log initial states
+        console.debug('Store states:', {
+          main: {
+            hasRepository: !!mainState.repository,
+            filesCount: mainState.files.length,
+            modulesCount: mainState.modules.length,
+            isLoading: mainState.loading,
+            hasError: !!mainState.error,
+          },
+          auth: {
+            isAuthenticated: authState.isAuthenticated,
+            hasUser: !!authState.user,
+            isLoading: authState.isLoading,
+            hasError: !!authState.error,
           }
-        );
-
-        return () => {
-          unsubscribeMain?.();
-          unsubscribeAuth?.();
-        };
+        });
       }
+
+      // Mark as hydrated after successful initialization
+      setIsHydrated(true);
     } catch (error) {
       console.error('Store initialization error:', error);
       setInitError(error instanceof Error ? error : new Error('Failed to initialize stores'));
       
-      // Show error toast
       toast.error('Store Initialization Error', {
         description: 'Failed to initialize application state. Please refresh the page.',
       });
-    } finally {
-      setIsHydrated(true);
     }
-  }, []);
+  }, [mainStore, authStore, analyzedReposStore]);
 
   // Show loading state
   if (!isHydrated) {
@@ -134,4 +104,12 @@ export function StoreInitializer({ children }: StoreInitializerProps) {
   }
 
   return children;
+}
+
+export default function StoreInitializerWrapper({ children }: StoreInitializerProps) {
+  return (
+    <ClientOnly>
+      <StoreInitializer>{children}</StoreInitializer>
+    </ClientOnly>
+  );
 } 

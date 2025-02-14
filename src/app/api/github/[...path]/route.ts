@@ -1,8 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decryptSession } from '../../auth/[...nextauth]/route';
+import type { GitHubError } from '@/types/auth';
 
 const GITHUB_API_URL = 'https://api.github.com';
 const SESSION_COOKIE = 'gh_session';
+
+const DEFAULT_HEADERS = {
+  'Accept': 'application/vnd.github.v3+json',
+  'User-Agent': 'code-analyzer',
+  'X-GitHub-Api-Version': '2022-11-28'
+};
+
+async function handleGitHubResponse(response: Response) {
+  const rateLimit = {
+    limit: response.headers.get('x-ratelimit-limit'),
+    remaining: response.headers.get('x-ratelimit-remaining'),
+    reset: response.headers.get('x-ratelimit-reset'),
+    used: response.headers.get('x-ratelimit-used'),
+  };
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`GitHub API error (${response.status}):`, error);
+    let errorData: GitHubError;
+    
+    try {
+      errorData = JSON.parse(error);
+    } catch {
+      errorData = {
+        message: error,
+        documentation_url: null
+      };
+    }
+
+    // Handle rate limiting specifically
+    if (response.status === 403 && Number(rateLimit.remaining) === 0) {
+      return NextResponse.json(
+        {
+          error: 'rate_limit_exceeded',
+          error_description: 'GitHub API rate limit exceeded',
+          rate_limit: rateLimit,
+          reset_at: new Date(Number(rateLimit.reset) * 1000).toISOString()
+        },
+        { status: 403 }
+      );
+    }
+
+    // Handle authentication errors
+    if (response.status === 401) {
+      return NextResponse.json(
+        {
+          error: 'unauthorized',
+          error_description: 'GitHub token is invalid or expired',
+          details: errorData.message
+        },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error: 'github_api_error',
+        error_description: errorData.message,
+        documentation_url: errorData.documentation_url,
+        rate_limit: rateLimit
+      },
+      { status: response.status }
+    );
+  }
+
+  const data = await response.json();
+  const responseHeaders = new Headers();
+  
+  // Forward rate limit information
+  Object.entries(rateLimit).forEach(([key, value]) => {
+    if (value) responseHeaders.set(`x-ratelimit-${key}`, value);
+  });
+
+  return NextResponse.json(data, { headers: responseHeaders });
+}
 
 export async function GET(
   request: NextRequest,
@@ -46,37 +122,12 @@ export async function GET(
     // Forward request to GitHub API
     const githubResponse = await fetch(url.toString(), {
       headers: {
+        ...DEFAULT_HEADERS,
         'Authorization': `Bearer ${session.accessToken}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'code-analyzer',
       },
     });
 
-    if (!githubResponse.ok) {
-      const error = await githubResponse.text();
-      console.error(`GitHub API error (${githubResponse.status}):`, error);
-      
-      if (githubResponse.status === 401) {
-        return NextResponse.json(
-          {
-            error: 'unauthorized',
-            error_description: 'GitHub token is invalid or expired'
-          },
-          { status: 401 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error: 'github_api_error',
-          error_description: `GitHub API returned ${githubResponse.status}`
-        },
-        { status: githubResponse.status }
-      );
-    }
-
-    const data = await githubResponse.json();
-    return NextResponse.json(data);
+    return handleGitHubResponse(githubResponse);
   } catch (error) {
     console.error('GitHub proxy error:', error);
     return NextResponse.json(
@@ -126,39 +177,14 @@ export async function POST(
     const githubResponse = await fetch(url.toString(), {
       method: 'POST',
       headers: {
+        ...DEFAULT_HEADERS,
         'Authorization': `Bearer ${session.accessToken}`,
-        'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json',
-        'User-Agent': 'code-analyzer',
       },
       body: JSON.stringify(await request.json()),
     });
 
-    if (!githubResponse.ok) {
-      const error = await githubResponse.text();
-      console.error(`GitHub API error (${githubResponse.status}):`, error);
-      
-      if (githubResponse.status === 401) {
-        return NextResponse.json(
-          {
-            error: 'unauthorized',
-            error_description: 'GitHub token is invalid or expired'
-          },
-          { status: 401 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error: 'github_api_error',
-          error_description: `GitHub API returned ${githubResponse.status}`
-        },
-        { status: githubResponse.status }
-      );
-    }
-
-    const data = await githubResponse.json();
-    return NextResponse.json(data);
+    return handleGitHubResponse(githubResponse);
   } catch (error) {
     console.error('GitHub proxy error:', error);
     return NextResponse.json(

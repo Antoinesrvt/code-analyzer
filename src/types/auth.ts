@@ -75,8 +75,13 @@ export interface AuthStore extends AuthState {
 }
 
 export interface GitHubError {
-  error: string;
-  error_description?: string;
+  message: string;
+  documentation_url: string | null;
+  errors?: Array<{
+    resource: string;
+    field: string;
+    code: string;
+  }>;
 }
 
 export interface OAuthTokenResponse {

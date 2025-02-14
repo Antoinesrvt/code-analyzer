@@ -31,7 +31,7 @@ export async function GET() {
     // Create response with OAuth URL
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
-      redirect_uri: process.env.GITHUB_REDIRECT_URI ?? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      redirect_uri: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 'http://localhost:3000/auth/callback',
       state,
       scope: 'repo read:user user:email',
     });
@@ -115,6 +115,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const redirectUri = process.env.NEXT_PUBLIC_APP_URL 
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` 
+      : 'http://localhost:3000/auth/callback';
+
     // Exchange code for access token
     const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
       method: 'POST',
@@ -123,18 +127,17 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: process.env.GITHUB_CLIENT_ID!,
+        client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
         client_secret: process.env.GITHUB_CLIENT_SECRET!,
         code,
         state,
-        ...(process.env.GITHUB_REDIRECT_URI && {
-          redirect_uri: process.env.GITHUB_REDIRECT_URI
-        })
-      })
+        redirect_uri: redirectUri
+      }).toString()
     });
 
     if (!tokenResponse.ok) {
       const error = await tokenResponse.json();
+      console.error('Token exchange error:', error);
       return NextResponse.json(
         {
           error: error.error || 'token_exchange_failed',

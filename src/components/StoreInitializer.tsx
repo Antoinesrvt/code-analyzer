@@ -14,6 +14,15 @@ interface StoreInitializerProps {
 export function StoreInitializer({ children }: StoreInitializerProps) {
   const [isHydrated, setIsHydrated] = useState(false);
   const [initError, setInitError] = useState<Error | null>(null);
+  const [initializationState, setInitializationState] = useState<{
+    main: boolean;
+    auth: boolean;
+    analyzedRepos: boolean;
+  }>({
+    main: false,
+    auth: false,
+    analyzedRepos: false,
+  });
 
   // Use store hooks properly
   const mainStore = useStore();
@@ -25,80 +34,94 @@ export function StoreInitializer({ children }: StoreInitializerProps) {
     let retryCount = 0;
     const maxRetries = 3;
     const retryDelay = 1000; // 1 second
+    let mounted = true;
+
+    const initializeStore = async (
+      storeName: 'main' | 'auth' | 'analyzedRepos',
+      storeInstance: any,
+      validator: () => boolean
+    ) => {
+      try {
+        const state = storeInstance();
+        if (!validator()) {
+          throw new Error(`${storeName} store validation failed`);
+        }
+        if (mounted) {
+          setInitializationState(prev => ({ ...prev, [storeName]: true }));
+        }
+        return true;
+      } catch (error) {
+        console.error(`${storeName} store initialization error:`, error);
+        return false;
+      }
+    };
 
     const initializeStores = async () => {
       try {
-        // Initialize stores by accessing them
-        const mainState = mainStore();
-        const authState = authStore();
-        const analyzedReposState = analyzedReposStore();
+        const results = await Promise.all([
+          initializeStore('main', mainStore, () => {
+            const state = mainStore();
+            return (
+              !!state &&
+              typeof state.loading === 'boolean' &&
+              'repository' in state
+            );
+          }),
+          initializeStore('auth', authStore, () => {
+            const state = authStore();
+            return (
+              !!state &&
+              typeof state.isAuthenticated === 'boolean' &&
+              'user' in state
+            );
+          }),
+          initializeStore('analyzedRepos', analyzedReposStore, () => {
+            const state = analyzedReposStore();
+            return !!state && Array.isArray(state.analyzedRepos);
+          }),
+        ]);
 
-        // Verify store states are accessible and have expected structure
-        if (!mainState || typeof mainState.loading !== 'boolean' || !('repository' in mainState)) {
-          throw new Error('Main store initialization failed: invalid state structure');
-        }
-
-        if (!authState || typeof authState.isAuthenticated !== 'boolean' || !('user' in authState)) {
-          throw new Error('Auth store initialization failed: invalid state structure');
-        }
-
-        if (!analyzedReposState || !Array.isArray(analyzedReposState.analyzedRepos)) {
-          throw new Error('Analyzed repos store initialization failed: invalid state structure');
-        }
-
-        // Log store initialization for debugging in production
-        if (process.env.NODE_ENV === 'production') {
-          console.debug('Store initialization:', {
-            timestamp: new Date().toISOString(),
-            stores: {
-              main: {
-                initialized: !!mainState,
-                hasRepository: !!mainState.repository,
-                isLoading: mainState.loading,
-                hasError: !!mainState.error,
-              },
-              auth: {
-                initialized: !!authState,
-                isAuthenticated: authState.isAuthenticated,
-                hasUser: !!authState.user,
-                isLoading: authState.isLoading,
-              },
-              analyzedRepos: {
-                initialized: !!analyzedReposState,
-                repoCount: analyzedReposState.analyzedRepos.length,
-              },
-            },
-          });
-        }
-
-        // Mark as hydrated after successful initialization
-        setIsHydrated(true);
-        setInitError(null);
-      } catch (error) {
-        console.error('Store initialization error:', error);
-        
-        if (retryCount < maxRetries) {
+        if (results.every(Boolean)) {
+          if (mounted) {
+            setIsHydrated(true);
+            setInitError(null);
+          }
+        } else if (retryCount < maxRetries) {
           retryCount++;
           console.log(`Retrying store initialization (attempt ${retryCount}/${maxRetries})...`);
           setTimeout(initializeStores, retryDelay);
-          return;
+        } else {
+          throw new Error(`Store initialization failed after ${maxRetries} retries`);
         }
 
-        const errorMessage = error instanceof Error ? error.message : 'Failed to initialize stores';
-        setInitError(new Error(`${errorMessage} (after ${maxRetries} retries)`));
-        
-        toast.error('Store Initialization Error', {
-          description: 'Failed to initialize application state. Please refresh the page.',
-          duration: 5000,
-        });
+        // Log initialization status in production
+        if (process.env.NODE_ENV === 'production') {
+          console.debug('Store initialization status:', {
+            timestamp: new Date().toISOString(),
+            stores: {
+              main: initializationState.main,
+              auth: initializationState.auth,
+              analyzedRepos: initializationState.analyzedRepos,
+            },
+            retryCount,
+          });
+        }
+      } catch (error) {
+        if (mounted) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to initialize stores';
+          setInitError(new Error(`${errorMessage} (after ${maxRetries} retries)`));
+          toast.error('Store Initialization Error', {
+            description: 'Failed to initialize application state. Please refresh the page.',
+            duration: 5000,
+          });
+        }
       }
     };
 
     initializeStores();
 
     return () => {
-      setIsHydrated(false);
-      setInitError(null);
+      mounted = false;
     };
   }, [mainStore, authStore, analyzedReposStore]);
 

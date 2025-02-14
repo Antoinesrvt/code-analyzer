@@ -60,10 +60,14 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
         
         // Set a timeout to prevent infinite loading
         analysisTimeout = setTimeout(() => {
-          if (mounted && loading) {
+          if (mounted) {
             setError('Analysis timeout - please try again');
             setLoading(false);
             setAnalysisProgress(null);
+            toast.error('Analysis Timeout', {
+              description: 'The analysis took too long to complete. Please try again.',
+              duration: 5000,
+            });
           }
         }, 300000); // 5 minutes timeout
         
@@ -72,7 +76,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
 
         if (!mounted) return;
 
-        // Start the analysis with progress updates
+        // Start the analysis with progress updates and error handling
         const analyzedRepo = await githubService.analyzeRepository(
           completeRepo.cloneUrl,
           (progress) => {
@@ -88,13 +92,23 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
               setLoading(false);
               clearTimeout(analysisTimeout);
             }
+          },
+          (error) => {
+            if (!mounted) return;
+            setError(error);
+            setLoading(false);
+            clearTimeout(analysisTimeout);
+            toast.error('Analysis Error', {
+              description: error,
+              duration: 5000,
+            });
           }
         );
 
         if (!mounted) return;
 
         setRepository(analyzedRepo);
-        setAnalysisProgress(null); // Clear progress when done
+        setAnalysisProgress(null);
         toast.success('Analysis completed!', {
           description: `Successfully analyzed ${repo}`,
         });
@@ -123,8 +137,9 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
       setLoading(false);
       setError(null);
       setAnalysisProgress(null);
+      setRepository(null);
     };
-  }, [owner, repo, setLoading, setError, setAnalysisProgress, setRepository, loading]);
+  }, [owner, repo, setLoading, setError, setAnalysisProgress, setRepository]);
 
   if (error) {
     return (

@@ -5,7 +5,6 @@ import { performanceMonitor } from './performanceService';
 import { workflowMonitor } from './workflowMonitor';
 import { config } from '@/config/config';
 import type { AnalyzedRepo } from '@/store/useAnalyzedReposStore';
-import { updateAnalysisProgress } from '@/store/useStore';
 
 // Helper function to get current time in milliseconds safely
 const getTimeMs = () => {
@@ -24,22 +23,24 @@ const defaultAnalysisProgress: AnalysisProgress = {
   errors: [],
 };
 
-class GitHubService {
+export class GitHubService {
   private octokit: Octokit | null = null;
   private static instance: GitHubService | null = null;
   private analysisProgress: AnalysisProgress;
   private initialized: boolean = false;
   private currentProgressCallback: ((progress: AnalysisProgress) => void) | null = null;
+  private currentErrorCallback: ((error: string) => void) | null = null;
 
   private constructor() {
     this.analysisProgress = { ...defaultAnalysisProgress };
-    // Only initialize if we're on the client side
     if (typeof window !== 'undefined') {
       this.initializeClient().catch(error => {
         console.error('Failed to initialize GitHub client:', error);
-        // Reset state on initialization error
         this.initialized = false;
         this.octokit = null;
+        if (this.currentErrorCallback) {
+          this.currentErrorCallback('Failed to initialize GitHub client');
+        }
       });
     }
   }
@@ -90,18 +91,20 @@ class GitHubService {
         ...this.analysisProgress,
         ...update,
       };
-      // Use the onProgress callback instead of direct store access
       if (this.currentProgressCallback) {
         this.currentProgressCallback(this.analysisProgress);
       }
     } catch (error) {
       console.error('Error updating progress:', error);
-      // If progress update fails, ensure we don't leave the analysis in a broken state
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update analysis progress';
+      if (this.currentErrorCallback) {
+        this.currentErrorCallback(errorMessage);
+      }
       if (this.currentProgressCallback) {
         this.currentProgressCallback({
           ...defaultAnalysisProgress,
           status: 'error',
-          errors: ['Failed to update analysis progress'],
+          errors: [errorMessage],
         });
       }
     }
@@ -367,14 +370,15 @@ class GitHubService {
 
   public async analyzeRepository(
     url: string,
-    onProgress?: (progress: AnalysisProgress) => void
+    onProgress?: (progress: AnalysisProgress) => void,
+    onError?: (error: string) => void
   ): Promise<AnalyzedRepo> {
     if (typeof window === 'undefined') {
       throw new Error('Cannot analyze repository during SSR');
     }
 
-    // Store the callback for use in updateProgress
     this.currentProgressCallback = onProgress || null;
+    this.currentErrorCallback = onError || null;
 
     const operationId = 'analyze-repository';
     workflowMonitor.startOperation(operationId);
@@ -502,27 +506,14 @@ class GitHubService {
 
       return analyzedRepo;
     } catch (error) {
-      workflowMonitor.endOperation(operationId, 'error',
-        error instanceof Error ? error : new Error(String(error))
-      );
-      
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : 'Unknown error occurred while analyzing repository';
-
-      // Update progress for error state
-      this.updateProgress({
-        status: 'error',
-        currentPhase: 'error',
-        errors: [...this.analysisProgress.errors, errorMessage],
-      });
-      if (onProgress) onProgress(this.analysisProgress);
-
-      console.error('Failed to analyze repository:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred while analyzing repository';
+      if (this.currentErrorCallback) {
+        this.currentErrorCallback(errorMessage);
+      }
       throw new Error(errorMessage);
     } finally {
-      // Clear the callback
       this.currentProgressCallback = null;
+      this.currentErrorCallback = null;
     }
   }
 }

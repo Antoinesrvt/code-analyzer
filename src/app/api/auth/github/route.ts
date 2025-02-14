@@ -1,86 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'crypto';
-import { encryptSession, decryptSession } from '../[...nextauth]/route';
-import type { SessionData } from '@/types/auth';
+import { encryptSession } from '../[...nextauth]/route';
+import { config } from '@/config/config';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const STATE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const SESSION_COOKIE = 'gh_session';
 
-interface GitHubTokenResponse {
-  access_token: string;
-  token_type: string;
-  scope: string;
-}
-
-// GET handler for initiating OAuth flow
+// GET handler to initiate GitHub OAuth flow
 export async function GET() {
   try {
-    if (!process.env.SESSION_SECRET) {
-      throw new Error('SESSION_SECRET environment variable is not set');
-    }
-
-    const state = randomUUID();
-    const timestamp = Date.now();
-
+    // Generate random state for CSRF protection
+    const state = crypto.randomUUID();
+    
+    // Build the authorization URL
     const params = new URLSearchParams({
       client_id: process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID!,
-      redirect_uri: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 'http://localhost:3000/auth/callback',
-      state,
+      redirect_uri: process.env.NEXT_PUBLIC_APP_URL 
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` 
+        : 'http://localhost:3000/auth/callback',
       scope: 'repo read:user user:email',
+      state: state,
     });
 
-    const response = NextResponse.json({
-      success: true,
-      url: `${GITHUB_OAUTH_URL}?${params}`,
-      state,
+    const url = `${GITHUB_OAUTH_URL}?${params}`;
+
+    return NextResponse.json({ 
+      success: true, 
+      url,
+      state 
     });
-
-    try {
-      // Set state cookie for validation using encryption
-      const stateSession: SessionData = {
-        accessToken: '',
-        tokenType: '',
-        scope: '',
-        createdAt: timestamp,
-        oauthState: state,
-        githubId: 0 // Placeholder, will be set during callback
-      };
-
-      response.cookies.set('oauth_state', encryptSession(stateSession), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: STATE_TIMEOUT / 1000,
-      });
-    } catch (encryptError) {
-      console.error('Session encryption error:', encryptError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'encryption_error',
-          error_description: 'Failed to secure session data. Please check server configuration.'
-        },
-        { status: 500 }
-      );
-    }
-
-    return response;
   } catch (error) {
-    console.error('GitHub auth initialization error:', error);
+    console.error('Failed to initiate GitHub OAuth:', error);
     return NextResponse.json(
       {
         success: false,
-        error: 'server_error',
-        error_description: error instanceof Error ? error.message : 'Failed to initialize GitHub OAuth'
+        error: 'oauth_init_failed',
+        error_description: error instanceof Error ? error.message : 'Failed to initiate GitHub OAuth'
       },
       { status: 500 }
     );
   }
 }
 
-// POST handler for handling OAuth callback
+// POST handler to exchange code for token
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -97,48 +59,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get and validate state from encrypted cookie
-    const stateCookie = request.cookies.get('oauth_state');
-    if (!stateCookie?.value) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'invalid_state',
-          error_description: 'No state cookie found'
-        },
-        { status: 400 }
-      );
-    }
-
-    const stateSession = decryptSession(stateCookie.value);
-    if (stateSession.oauthState !== state) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'invalid_state',
-          error_description: 'Invalid state parameter'
-        },
-        { status: 400 }
-      );
-    }
-
-    // Check state timeout
-    const stateAge = Date.now() - stateSession.createdAt;
-    if (stateAge > STATE_TIMEOUT) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'state_expired',
-          error_description: 'State parameter has expired'
-        },
-        { status: 400 }
-      );
-    }
-
-    const redirectUri = process.env.NEXT_PUBLIC_APP_URL 
-      ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` 
-      : 'http://localhost:3000/auth/callback';
-
     // Exchange code for access token
     const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
       method: 'POST',
@@ -151,26 +71,40 @@ export async function POST(request: NextRequest) {
         client_secret: process.env.GITHUB_CLIENT_SECRET!,
         code,
         state,
-        redirect_uri: redirectUri
-      }).toString()
+        redirect_uri: process.env.NEXT_PUBLIC_APP_URL 
+          ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` 
+          : 'http://localhost:3000/auth/callback'
+      }).toString(),
     });
 
     if (!tokenResponse.ok) {
-      const error = await tokenResponse.json();
+      const error = await tokenResponse.text();
       console.error('Token exchange error:', error);
       return NextResponse.json(
         {
           success: false,
-          error: error.error || 'token_exchange_failed',
-          error_description: error.error_description || 'Failed to exchange code for token'
+          error: 'token_exchange_failed',
+          error_description: 'Failed to exchange code for token'
         },
         { status: 400 }
       );
     }
 
-    const data: GitHubTokenResponse = await tokenResponse.json();
+    const data = await tokenResponse.json();
+    
+    if (data.error) {
+      console.error('GitHub OAuth error:', data);
+      return NextResponse.json(
+        {
+          success: false,
+          error: data.error,
+          error_description: data.error_description
+        },
+        { status: 400 }
+      );
+    }
 
-    // Fetch user data immediately
+    // Fetch user data
     const githubResponse = await fetch('https://api.github.com/user', {
       headers: {
         'Authorization': `Bearer ${data.access_token}`,
@@ -179,10 +113,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!githubResponse.ok) {
+      console.error('Failed to fetch user data:', await githubResponse.text());
       return NextResponse.json(
         {
           success: false,
-          error: 'user_data_failed',
+          error: 'user_fetch_failed',
           error_description: 'Failed to fetch user data'
         },
         { status: 400 }
@@ -191,13 +126,13 @@ export async function POST(request: NextRequest) {
 
     const userData = await githubResponse.json();
 
-    // Create new session with githubId
-    const newSession: SessionData = {
+    // Create session
+    const session = {
       accessToken: data.access_token,
       tokenType: data.token_type,
       scope: data.scope,
       createdAt: Date.now(),
-      githubId: userData.id // Include GitHub ID in session
+      githubId: userData.id
     };
 
     // Create response with user data
@@ -214,8 +149,8 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Set encrypted session cookie
-    response.cookies.set(SESSION_COOKIE, encryptSession(newSession), {
+    // Set session cookie
+    response.cookies.set(SESSION_COOKIE, encryptSession(session), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -224,12 +159,12 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('GitHub auth callback error:', error);
+    console.error('GitHub auth error:', error);
     return NextResponse.json(
       {
         success: false,
         error: 'server_error',
-        error_description: error instanceof Error ? error.message : 'Failed to complete GitHub OAuth'
+        error_description: error instanceof Error ? error.message : 'Authentication failed'
       },
       { status: 500 }
     );
@@ -245,7 +180,6 @@ export async function OPTIONS(request: NextRequest) {
     'https://code-analyzer-five.vercel.app'
   ];
 
-  // Only set CORS headers if origin is allowed
   if (origin && allowedOrigins.includes(origin)) {
     return new NextResponse(null, {
       status: 200,

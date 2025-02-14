@@ -21,62 +21,84 @@ export async function GET(request: NextRequest) {
     try {
       const session = decryptSession(sessionCookie.value);
       
-      // Get user data from GitHub
-      const githubResponse = await fetch('https://api.github.com/user', {
-        headers: {
-          'Authorization': `Bearer ${session.accessToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-        },
-      });
+      // Get user data from GitHub with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-      if (!githubResponse.ok) {
-        console.error('Failed to fetch user data:', await githubResponse.text());
+      try {
+        const githubResponse = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!githubResponse.ok) {
+          console.error('Failed to fetch user data:', await githubResponse.text());
+          return NextResponse.json({
+            isAuthenticated: false,
+            user: null,
+            dbUser: null,
+            hasToken: false,
+            timestamp: Date.now()
+          });
+        }
+
+        const githubData = await githubResponse.json();
+        const githubUser = {
+          id: githubData.id,
+          login: githubData.login,
+          name: githubData.name,
+          email: githubData.email,
+          avatarUrl: githubData.avatar_url,
+          url: githubData.html_url,
+          type: githubData.type || 'User',
+        };
+
+        // Try to get or create user in our database
+        let dbUser = null;
+        try {
+          dbUser = await userService.findOrCreateUser(githubUser);
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          // Continue without database user
+        }
+
         return NextResponse.json({
-          isAuthenticated: false,
-          user: null,
-          dbUser: null,
-          hasToken: false,
+          isAuthenticated: true,
+          user: githubUser,
+          dbUser: dbUser ? {
+            githubId: dbUser.githubId,
+            email: dbUser.email,
+            login: dbUser.login,
+            name: dbUser.name,
+            avatarUrl: dbUser.avatarUrl,
+            plan: dbUser.plan,
+            lastLoginAt: dbUser.lastLoginAt,
+            createdAt: dbUser.createdAt,
+            updatedAt: dbUser.updatedAt,
+          } : null,
+          hasToken: true,
           timestamp: Date.now()
         });
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          console.error('GitHub API request timed out');
+          return NextResponse.json({
+            isAuthenticated: false,
+            user: null,
+            dbUser: null,
+            hasToken: false,
+            error: 'timeout',
+            timestamp: Date.now()
+          });
+        }
+        throw fetchError;
       }
-
-      const githubData = await githubResponse.json();
-      const githubUser = {
-        id: githubData.id,
-        login: githubData.login,
-        name: githubData.name,
-        email: githubData.email,
-        avatarUrl: githubData.avatar_url,
-        url: githubData.html_url,
-        type: githubData.type || 'User',
-      };
-
-      // Try to get or create user in our database
-      let dbUser = null;
-      try {
-        dbUser = await userService.findOrCreateUser(githubUser);
-      } catch (dbError) {
-        console.error('Database error:', dbError);
-        // Continue without database user - this allows the app to work even if MongoDB is down
-      }
-
-      return NextResponse.json({
-        isAuthenticated: true,
-        user: githubUser,
-        dbUser: dbUser ? {
-          githubId: dbUser.githubId,
-          email: dbUser.email,
-          login: dbUser.login,
-          name: dbUser.name,
-          avatarUrl: dbUser.avatarUrl,
-          plan: dbUser.plan,
-          lastLoginAt: dbUser.lastLoginAt,
-          createdAt: dbUser.createdAt,
-          updatedAt: dbUser.updatedAt,
-        } : null,
-        hasToken: true,
-        timestamp: Date.now()
-      });
     } catch (decryptError) {
       console.error('Session decryption error:', decryptError);
       return NextResponse.json({

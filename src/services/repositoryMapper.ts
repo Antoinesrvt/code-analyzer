@@ -12,6 +12,7 @@ export class RepositoryMapper {
         id: repo.owner.id,
         login: repo.owner.login,
         name: repo.owner.name || null,
+        email: repo.owner.email || null,
         avatarUrl: repo.owner.avatar_url,
         url: repo.owner.html_url,
         type: repo.owner.type as 'User' | 'Organization'

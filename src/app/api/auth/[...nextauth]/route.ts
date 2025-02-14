@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes, createCipheriv, createDecipheriv } from 'crypto';
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'crypto';
 import type { SessionData, AuthResponse } from '@/types/auth';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/access_token';
 const COOKIE_NAME = 'gh_session';
+const ENCRYPTION_KEY_LENGTH = 32; // 256 bits for AES-256-GCM
+const SALT = 'github-oauth-salt'; // Consistent salt for key derivation
 
 interface GitHubTokenResponse {
   access_token: string;
@@ -11,33 +13,71 @@ interface GitHubTokenResponse {
   scope: string;
 }
 
+// Helper function to validate and derive encryption key
+function deriveKey(secret: string): Buffer {
+  if (!secret || typeof secret !== 'string') {
+    throw new Error('SESSION_SECRET environment variable must be set');
+  }
+  
+  if (secret.length < 64) { // At least 32 bytes in hex (64 characters)
+    throw new Error('SESSION_SECRET must be at least 64 characters long (32 bytes in hex)');
+  }
+
+  try {
+    // Use scrypt with a consistent salt to derive a 32-byte key
+    return scryptSync(secret, SALT, ENCRYPTION_KEY_LENGTH);
+  } catch (error) {
+    console.error('Key derivation error:', error);
+    throw new Error('Failed to derive encryption key. Check SESSION_SECRET format.');
+  }
+}
+
 // Helper function to encrypt session data
 export function encryptSession(data: SessionData): string {
-  const key = process.env.SESSION_SECRET!;
-  const iv = randomBytes(16);
-  const cipher = createCipheriv('aes-256-gcm', Buffer.from(key), iv);
-  
-  let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${encrypted}:${authTag.toString('hex')}`;
+  try {
+    const key = deriveKey(process.env.SESSION_SECRET || '');
+    const iv = randomBytes(16);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    
+    let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${encrypted}:${authTag.toString('hex')}`;
+  } catch (error) {
+    console.error('Encryption error:', error);
+    throw new Error('Failed to encrypt session data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
 }
 
 // Helper function to decrypt session data
 export function decryptSession(encrypted: string): SessionData {
-  const key = process.env.SESSION_SECRET!;
-  const [ivHex, encryptedData, authTagHex] = encrypted.split(':');
-  
-  const iv = Buffer.from(ivHex, 'hex');
-  const authTag = Buffer.from(authTagHex, 'hex');
-  const decipher = createDecipheriv('aes-256-gcm', Buffer.from(key), iv);
-  
-  decipher.setAuthTag(authTag);
-  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  
-  return JSON.parse(decrypted) as SessionData;
+  try {
+    const key = deriveKey(process.env.SESSION_SECRET || '');
+    const [ivHex, encryptedData, authTagHex] = encrypted.split(':');
+    
+    if (!ivHex || !encryptedData || !authTagHex) {
+      throw new Error('Invalid encrypted data format');
+    }
+    
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    
+    const parsed = JSON.parse(decrypted);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid session data format');
+    }
+    
+    return parsed as SessionData;
+  } catch (error) {
+    console.error('Decryption error:', error);
+    throw new Error('Failed to decrypt session data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
 }
 
 export async function POST(request: NextRequest) {

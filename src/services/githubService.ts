@@ -304,6 +304,7 @@ class GitHubService {
 
       const repoOwner: User = {
         id: repoData.owner.id,
+        email: repoData.owner.email || null,
         login: repoData.owner.login,
         name: repoData.owner.name || null,
         avatarUrl: repoData.owner.avatar_url,

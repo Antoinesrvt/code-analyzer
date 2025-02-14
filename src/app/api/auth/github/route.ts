@@ -17,6 +17,10 @@ interface GitHubTokenResponse {
 // GET handler for initiating OAuth flow
 export async function GET() {
   try {
+    if (!process.env.SESSION_SECRET) {
+      throw new Error('SESSION_SECRET environment variable is not set');
+    }
+
     const state = randomUUID();
     const timestamp = Date.now();
 
@@ -33,21 +37,33 @@ export async function GET() {
       state,
     });
 
-    // Set state cookie for validation using encryption
-    const stateSession: SessionData = {
-      accessToken: '',
-      tokenType: '',
-      scope: '',
-      createdAt: timestamp,
-      oauthState: state
-    };
+    try {
+      // Set state cookie for validation using encryption
+      const stateSession: SessionData = {
+        accessToken: '',
+        tokenType: '',
+        scope: '',
+        createdAt: timestamp,
+        oauthState: state
+      };
 
-    response.cookies.set('oauth_state', encryptSession(stateSession), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: STATE_TIMEOUT / 1000,
-    });
+      response.cookies.set('oauth_state', encryptSession(stateSession), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: STATE_TIMEOUT / 1000,
+      });
+    } catch (encryptError) {
+      console.error('Session encryption error:', encryptError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'encryption_error',
+          error_description: 'Failed to secure session data. Please check server configuration.'
+        },
+        { status: 500 }
+      );
+    }
 
     return response;
   } catch (error) {

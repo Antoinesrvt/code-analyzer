@@ -5,7 +5,8 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
-} from 'react-flow-renderer';
+} from 'reactflow';
+import 'reactflow/dist/style.css';
 import { useStore } from '../store/useStore';
 
 export function WorkflowView() {

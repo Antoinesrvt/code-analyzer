@@ -34,6 +34,8 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
     
     const url = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
 
+    console.log('Fetching repositories from:', url); // Debug log
+
     const response = await fetch(url, { 
       credentials: 'include',
       headers: {
@@ -45,10 +47,14 @@ async function fetchRepositories(searchQuery: string, plan?: string) {
 
     if (!response.ok) {
       const errorData = await response.json();
+      console.error('Repository fetch error:', errorData); // Debug log
       throw new Error(errorData.error?.message || errorData.error_description || errorData.error || 'Failed to fetch repositories');
     }
 
     const data = await response.json();
+    console.log('Repository response:', data); // Debug log
+
+    // Handle the nested response format
     const repositories = data.data?.repositories || [];
     
     // Client-side filtering for search

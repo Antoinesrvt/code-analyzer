@@ -98,7 +98,11 @@ async function handleGitHubResponse(response: Response) {
   }
 
   const data = await response.json();
-  const apiResponse = createApiResponse(data, 200);
+  console.log('GitHub API response:', data); // Debug log
+
+  // For repository endpoints, ensure we're returning an array
+  const responseData = Array.isArray(data) ? { repositories: data } : data;
+  const apiResponse = createApiResponse(responseData, 200);
   
   // Add rate limit headers to the response
   Object.entries(rateLimit).forEach(([key, value]) => {
@@ -148,6 +152,24 @@ export const GET = withValidation(repoParamsSchema, async (data, request: NextRe
           }
         }
       });
+
+      // Forward request to GitHub API
+      const githubResponse = await fetch(githubUrl.toString(), {
+        headers: {
+          ...DEFAULT_HEADERS,
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+      });
+
+      const response = await handleGitHubResponse(githubResponse);
+      
+      // Ensure we're wrapping the repositories array in the expected format
+      if (response.status === 200) {
+        const repositories = await response.json();
+        return createApiResponse({ repositories: repositories.data }, 200);
+      }
+      
+      return response;
     } else {
       githubUrl = new URL(githubPath, GITHUB_API_URL);
       url.searchParams.forEach((value, key) => {
@@ -155,17 +177,16 @@ export const GET = withValidation(repoParamsSchema, async (data, request: NextRe
           githubUrl.searchParams.set(key, value);
         }
       });
+
+      const githubResponse = await fetch(githubUrl.toString(), {
+        headers: {
+          ...DEFAULT_HEADERS,
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+      });
+
+      return handleGitHubResponse(githubResponse);
     }
-
-    // Forward request to GitHub API
-    const githubResponse = await fetch(githubUrl.toString(), {
-      headers: {
-        ...DEFAULT_HEADERS,
-        'Authorization': `Bearer ${session.accessToken}`,
-      },
-    });
-
-    return handleGitHubResponse(githubResponse);
   } catch (error) {
     console.error('GitHub proxy error:', error);
     if (error instanceof SyntaxError) {

@@ -290,7 +290,108 @@ export function RepositoryProvider({ children }: { children: React.ReactNode }) 
   };
 
   const startAnalysis = async (owner: string, repo: string) => {
-    await startAnalysisMutation.mutateAsync({ owner, repo });
+    try {
+      setError(null);
+      setState(prev => ({ ...prev, isLoading: true }));
+
+      // Start analysis
+      const response = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ owner, repo })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || error.error_description || error.error || 'Failed to start analysis');
+      }
+
+      const data = await response.json();
+      const analysisId = data.data.id;
+
+      // Poll for analysis progress
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await fetch(`/api/analysis/${analysisId}/progress`, {
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            }
+          });
+
+          if (!progressResponse.ok) {
+            throw new Error('Failed to fetch analysis progress');
+          }
+
+          const progressData = await progressResponse.json();
+          const progress = progressData.data.analysisProgress;
+
+          setState(prev => ({
+            ...prev,
+            analysisProgress: progress
+          }));
+
+          if (progress.status === 'complete') {
+            // Analysis completed, fetch the results
+            const analysisResponse = await fetch(`/api/analysis/${analysisId}`, {
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+              }
+            });
+
+            if (!analysisResponse.ok) {
+              throw new Error('Failed to fetch analysis results');
+            }
+
+            const analysisData = await analysisResponse.json();
+            setState(prev => ({
+              ...prev,
+              selectedRepo: analysisData.data,
+              isLoading: false,
+              error: null
+            }));
+
+            toast.success('Analysis completed!', {
+              description: `Successfully analyzed ${repo}`
+            });
+
+            // Invalidate queries to refresh the list
+            queryClient.invalidateQueries({ queryKey: ['analyzedRepos'] });
+          } else if (progress.status === 'failed') {
+            throw new Error(progress.message || 'Analysis failed');
+          } else {
+            // Continue polling
+            setTimeout(pollProgress, 2000);
+          }
+        } catch (error) {
+          setState(prev => ({
+            ...prev,
+            isLoading: false,
+            error: error instanceof Error ? error : new Error('Failed to process analysis')
+          }));
+        }
+      };
+
+      // Start polling
+      pollProgress();
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error : new Error('Failed to start analysis')
+      }));
+      throw error;
+    }
   };
 
   const refreshAnalysis = async (owner: string, repo: string) => {

@@ -67,18 +67,38 @@ export const POST = withValidation(createAnalysisSchema, async (data, request: N
       data.repo
     );
 
-    if (existingAnalysis && !existingAnalysis.isExpired()) {
-      return createApiResponse(existingAnalysis);
+    if (existingAnalysis) {
+      if (!existingAnalysis.isExpired()) {
+        return createApiResponse(existingAnalysis);
+      }
+      // If expired, we'll create a new one but keep the ID
     }
 
-    // Create new analysis
+    // Create new analysis with pending status
     const analysis = await databaseService.createAnalysis({
       githubId: session.githubId,
       owner: data.owner,
-      repo: data.repo
+      repo: data.repo,
+      analysisProgress: {
+        status: 'pending',
+        current: 0,
+        total: 100,
+        message: 'Initializing analysis...'
+      }
     });
 
-    return createApiResponse(analysis, 201);
+    // Start analysis in the background
+    databaseService.processAnalysis(analysis.id).catch(error => {
+      console.error('Background analysis failed:', error);
+    });
+
+    // Return immediately with the pending analysis
+    return createApiResponse({
+      id: analysis.id,
+      status: 'pending',
+      message: 'Analysis started',
+      pollInterval: 2000 // Suggest polling interval in ms
+    }, 202);
   } catch (error) {
     console.error('Failed to create analysis:', error);
     return createErrorResponse(

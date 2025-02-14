@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decryptSession } from '../[...nextauth]/route';
+import { userService } from '@/services/database/userService';
 
 const SESSION_COOKIE = 'gh_session';
 
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         isAuthenticated: false,
         user: null,
+        dbUser: null,
         hasToken: false,
         timestamp: Date.now()
       });
@@ -32,23 +34,46 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           isAuthenticated: false,
           user: null,
+          dbUser: null,
           hasToken: false,
           timestamp: Date.now()
         });
       }
 
-      const userData = await githubResponse.json();
+      const githubData = await githubResponse.json();
+
+      // Get or create user in our database
+      const dbUser = await userService.findOrCreateUser({
+        id: githubData.id,
+        login: githubData.login,
+        name: githubData.name,
+        email: githubData.email,
+        avatarUrl: githubData.avatar_url,
+        url: githubData.html_url,
+        type: githubData.type || 'User',
+      });
 
       return NextResponse.json({
         isAuthenticated: true,
         user: {
-          id: userData.id,
-          login: userData.login,
-          name: userData.name,
-          email: userData.email,
-          avatarUrl: userData.avatar_url,
-          url: userData.html_url,
-          type: userData.type || 'User',
+          id: githubData.id,
+          login: githubData.login,
+          name: githubData.name,
+          email: githubData.email,
+          avatarUrl: githubData.avatar_url,
+          url: githubData.html_url,
+          type: githubData.type || 'User',
+        },
+        dbUser: {
+          githubId: dbUser.githubId,
+          email: dbUser.email,
+          login: dbUser.login,
+          name: dbUser.name,
+          avatarUrl: dbUser.avatarUrl,
+          plan: dbUser.plan,
+          lastLoginAt: dbUser.lastLoginAt,
+          createdAt: dbUser.createdAt,
+          updatedAt: dbUser.updatedAt,
         },
         hasToken: true,
         timestamp: Date.now()
@@ -58,6 +83,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         isAuthenticated: false,
         user: null,
+        dbUser: null,
         hasToken: false,
         timestamp: Date.now()
       });

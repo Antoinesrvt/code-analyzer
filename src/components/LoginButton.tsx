@@ -1,58 +1,15 @@
 import { motion } from 'framer-motion';
 import { Github, Loader2 } from 'lucide-react';
-import { useAuthStore } from '../store/useAuthStore';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-
-interface GitHubAuthResponse {
-  success: boolean;
-  url?: string;
-  error?: string;
-  error_description?: string;
-}
+import { useAuth } from '@/contexts/auth/AuthContext';
 
 export function LoginButton() {
-  const store = useAuthStore();
-  const { isAuthenticated, isLoading, setLoading, setError } = store();
-  const router = useRouter();
-
-  const handleLogin = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch('/api/auth/github', {
-        credentials: 'include',
-      });
-
-      const data: GitHubAuthResponse = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error_description || data.error || 'Failed to initialize login');
-      }
-
-      if (!data.url) {
-        throw new Error('No authorization URL returned');
-      }
-
-      router.push(data.url);
-    } catch (error) {
-      console.error('Login error:', error);
-      const message = error instanceof Error ? error.message : 'Failed to initialize login';
-      setError(message);
-      toast.error('Login failed', {
-        description: message,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { isAuthenticated, isLoading, login } = useAuth();
 
   if (isAuthenticated) return null;
 
   return (
     <motion.button
-      onClick={handleLogin}
+      onClick={login}
       disabled={isLoading}
       className={`
         flex items-center space-x-2 px-4 py-2 rounded-lg

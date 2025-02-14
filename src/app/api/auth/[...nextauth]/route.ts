@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
       tokenType: data.token_type,
       scope: data.scope,
       createdAt: Date.now(),
+      githubId: userData.id,
     };
 
     // Encrypt session

@@ -1,3 +1,5 @@
+import { PerformanceMetrics } from './performance';
+
 export type AnalysisStatus = 'pending' | 'in-progress' | 'complete' | 'error';
 
 export interface AnalysisProgress {

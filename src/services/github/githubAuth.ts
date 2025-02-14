@@ -22,35 +22,23 @@ export class GitHubAuthService {
       throw new Error('Cannot initiate login during SSR');
     }
 
-    // Request a state token from the server
-    const response = await fetch('/api/auth/state', {
-      method: 'POST',
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to initialize login');
-    }
-
-    const { state } = await response.json();
-
     // Build the GitHub OAuth URL
     const params = new URLSearchParams({
       client_id: config.github.clientId,
       redirect_uri: config.github.redirectUri,
       scope: config.github.scopes.join(' '),
-      state,
+      state: crypto.randomUUID(),
     });
 
     return `https://github.com/login/oauth/authorize?${params}`;
   }
 
-  public async handleCallback(code: string, state: string): Promise<boolean> {
-    if (typeof window === 'undefined') {
-      throw new Error('Cannot handle callback during SSR');
-    }
-
-    const response = await fetch('/api/auth/callback', {
+  public async exchangeCodeForToken(code: string, state: string): Promise<{ 
+    access_token: string;
+    token_type: string;
+    scope: string;
+  }> {
+    const response = await fetch('/api/auth/github', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -64,8 +52,22 @@ export class GitHubAuthService {
       throw new Error(error.error_description || error.error || 'Authentication failed');
     }
 
-    const data = await response.json();
-    return data.success;
+    return response.json();
+  }
+
+  public async getCurrentUser(accessToken: string) {
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch user data');
+    }
+
+    return response.json();
   }
 
   public async logout(): Promise<void> {
@@ -83,4 +85,6 @@ export class GitHubAuthService {
       throw new Error(error.error_description || error.error || 'Logout failed');
     }
   }
-} 
+}
+
+export const githubAuthService = GitHubAuthService.getInstance(); 

@@ -1,14 +1,13 @@
 import React, { useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useStore } from '../store/useStore';
+import { useRepository } from '@/contexts/repository/RepositoryContext';
 import { GraphNode, ModuleGraph } from './ModuleGraph';
 import { ModuleSkeleton } from './ModuleSkeleton';
 import { PerformanceReport } from './PerformanceReport';
 import { ProgressBanner } from './ProgressBanner';
 
 export function ModuleView() {
-  const store = useStore();
-  const { modules, files, loading, repository, analysisProgress } = store();
+  const { modules, files, isLoading, selectedRepo, analysisProgress } = useRepository();
   const [showPerformance, setShowPerformance] = React.useState(false);
 
   const handleNodeClick = useCallback((node: GraphNode) => {
@@ -50,7 +49,7 @@ export function ModuleView() {
       </div>
 
       <AnimatePresence mode="wait">
-        {loading && !modules.length ? (
+        {isLoading && !modules.length ? (
           <motion.div
             key="skeleton"
             initial={{ opacity: 0 }}
@@ -60,7 +59,7 @@ export function ModuleView() {
           >
             <ModuleSkeleton />
           </motion.div>
-        ) : showPerformance && repository?.performanceMetrics ? (
+        ) : showPerformance && selectedRepo?.performanceMetrics ? (
           <motion.div
             key="performance"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -69,7 +68,7 @@ export function ModuleView() {
             transition={{ duration: 0.3 }}
             className="w-full h-full overflow-auto p-4"
           >
-            <PerformanceReport metrics={repository.performanceMetrics} />
+            <PerformanceReport metrics={selectedRepo.performanceMetrics} />
           </motion.div>
         ) : (
           <motion.div

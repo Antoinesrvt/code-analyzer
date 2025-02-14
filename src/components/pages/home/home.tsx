@@ -10,22 +10,16 @@ import { WorkflowView } from "@/components/WorkflowView";
 import { LandingHero } from "@/components/LandingHero";
 import { LoadingView } from "@/components/LoadingView";
 import { LoginButton } from "@/components/LoginButton";
-import { useStore } from "@/store/useStore";
-import { useAuthStore } from "@/store/useAuthStore";
+import { useAuth } from "@/contexts/auth/AuthContext";
+import { useRepository } from "@/contexts/repository/RepositoryContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useRouter } from "next/navigation";
 
-
-
 export default function Home() {
   const router = useRouter();
-  const [activeView, setActiveView] = React.useState<"module" | "workflow">(
-    "module"
-  );
-  const store = useStore();
-  const { repository, loading, error } = store();
-  const authStore = useAuthStore();
-  const { isAuthenticated, user } = authStore();
+  const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
+  const { isAuthenticated, githubUser } = useAuth();
+  const { selectedRepo, isLoading, error } = useRepository();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -59,7 +53,7 @@ export default function Home() {
             </motion.div>
 
             <div className="flex items-center space-x-4">
-              {repository && !loading && !error && (
+              {selectedRepo && !isLoading && !error && (
                 <motion.div
                   className="flex space-x-4"
                   initial={{ opacity: 0, y: -20 }}
@@ -99,11 +93,11 @@ export default function Home() {
                   >
                     Dashboard
                   </a>
-                  {user && (
+                  {githubUser && (
                     <div className="relative w-8 h-8">
                       <Image
-                        src={user.avatarUrl}
-                        alt={user.login}
+                        src={githubUser.avatarUrl}
+                        alt={githubUser.login}
                         fill
                         className="rounded-full object-cover"
                       />
@@ -121,7 +115,7 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <ErrorBoundary>
           <AnimatePresence mode="wait">
-            {!repository && !loading ? (
+            {!selectedRepo && !isLoading ? (
               <motion.div
                 key="landing"
                 initial={{ opacity: 0, y: 20 }}
@@ -131,7 +125,7 @@ export default function Home() {
               >
                 <LandingHero />
               </motion.div>
-            ) : loading || error ? (
+            ) : isLoading || error ? (
               <LoadingView
                 onCancel={() => {
                   router.push("/");

@@ -58,6 +58,7 @@ export interface SessionData {
   scope: string;
   createdAt: number;
   oauthState?: string;
+  githubId: number;
 }
 
 export interface AuthState {

@@ -1,50 +1,24 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+'use client';
+
+import { CallbackHandler } from '@/components/pages/callback/CallbackHandler';
 import { Loader2 } from 'lucide-react';
-import { GitHubAuthService } from '../services/githubAuth';
+import { motion } from 'framer-motion';
 
 export default function AuthCallback() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [error, setError] = useState<string | null>(null);
+  // Get the code and state from the URL
+  const params = typeof window !== 'undefined' 
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams();
+    
+  const code = params.get('code');
+  const state = params.get('state');
 
-  useEffect(() => {
-    const handleCallback = async () => {
-      const code = searchParams.get('code');
-      const state = searchParams.get('state');
-
-      if (!code || !state) {
-        setError('Missing required parameters');
-        return;
-      }
-
-      try {
-        const authService = GitHubAuthService.getInstance();
-        const success = await authService.handleCallback(code, state);
-        
-        if (success) {
-          // Redirect to dashboard on success
-          navigate('/dashboard', { replace: true });
-        } else {
-          setError('Authentication failed');
-        }
-      } catch (err) {
-        console.error('Auth callback error:', err);
-        const error = err as Error;
-        setError(error.message || 'Authentication failed');
-      }
-    };
-
-    handleCallback();
-  }, [navigate, searchParams]);
-
-  if (error) {
+  if (!code || !state) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="rounded-lg bg-red-50 p-4 text-sm text-red-500">
-          <h2 className="mb-2 font-semibold">Authentication Error</h2>
-          <p>{error}</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center text-red-500">
+          <h2 className="text-xl font-semibold mb-2">Authentication Error</h2>
+          <p>Missing required parameters</p>
         </div>
       </div>
     );
@@ -64,6 +38,7 @@ export default function AuthCallback() {
         <p className="text-gray-600">
           Please wait while we verify your credentials...
         </p>
+        <CallbackHandler code={code} state={state} />
       </motion.div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { performanceMonitor } from './performanceService';
+import { performanceMonitor } from '../monitoring/performanceService';
 
 // Helper function to get current time in milliseconds safely
 const getTimeMs = () => {

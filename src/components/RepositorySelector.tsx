@@ -5,9 +5,9 @@ import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { Repository } from '../types/auth';
-import { authService } from '../services/authService';
-import { useDebounce } from '../hooks/useDebounce';
+import type { Repository } from '@/types/auth';
+import { useAuth } from '@/contexts/auth/AuthContext';
+import { useDebounce } from '@/hooks/useDebounce';
 import { toast } from 'sonner';
 import type { SearchReposParameters } from '../types/github';
 
@@ -20,24 +20,31 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { githubUser } = useAuth();
   
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   useEffect(() => {
     const fetchRepositories = async () => {
+      if (!githubUser) return;
+
       try {
         setLoading(true);
         setError(null);
         
-        const repos = debouncedSearch
-          ? await authService.searchRepositories({ 
-              q: `${debouncedSearch} in:name fork:true`,
-              sort: 'updated',
-              order: 'desc'
-            } as SearchReposParameters)
-          : await authService.getUserRepositories();
+        const response = await fetch(
+          debouncedSearch
+            ? `/api/github/search/repositories?q=${encodeURIComponent(debouncedSearch)}`
+            : '/api/github/user/repositories',
+          { credentials: 'include' }
+        );
         
-        setRepositories(repos);
+        if (!response.ok) {
+          throw new Error('Failed to fetch repositories');
+        }
+        
+        const data = await response.json();
+        setRepositories(data.repositories || []);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to fetch repositories';
         setError(message);
@@ -48,7 +55,7 @@ export function RepositorySelector({ onSelect }: RepositorySelectorProps) {
     };
 
     fetchRepositories();
-  }, [debouncedSearch]);
+  }, [debouncedSearch, githubUser]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">

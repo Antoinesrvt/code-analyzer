@@ -5,7 +5,7 @@ import type { SessionData } from '@/types/auth';
 
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize';
 const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const STATE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const STATE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const SESSION_COOKIE = 'gh_session';
 
 interface GitHubTokenResponse {
@@ -44,7 +44,8 @@ export async function GET() {
         tokenType: '',
         scope: '',
         createdAt: timestamp,
-        oauthState: state
+        oauthState: state,
+        githubId: 0 // Placeholder, will be set during callback
       };
 
       response.cookies.set('oauth_state', encryptSession(stateSession), {
@@ -190,12 +191,13 @@ export async function POST(request: NextRequest) {
 
     const userData = await githubResponse.json();
 
-    // Create new session
+    // Create new session with githubId
     const newSession: SessionData = {
       accessToken: data.access_token,
       tokenType: data.token_type,
       scope: data.scope,
       createdAt: Date.now(),
+      githubId: userData.id // Include GitHub ID in session
     };
 
     // Create response with user data

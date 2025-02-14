@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/auth/AuthContext';
 import type { AuthResponse } from '@/types/auth';
 
 interface CallbackHandlerProps {
@@ -13,18 +13,13 @@ interface CallbackHandlerProps {
 
 export function CallbackHandler({ code, state }: CallbackHandlerProps) {
   const router = useRouter();
-  const store = useAuthStore();
-  const { setUser, setLoading, setError } = store();
+  const { refreshUser } = useAuth();
 
   useEffect(() => {
     let mounted = true;
 
     async function completeAuthentication() {
       try {
-        if (!mounted) return;
-        setLoading(true);
-        setError(null);
-
         // Exchange code for token and get user data
         const response = await fetch('/api/auth/github', {
           method: 'POST',
@@ -44,10 +39,13 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
         if (!mounted) return;
 
         if (data.user) {
-          setUser(data.user);
+          // Refresh auth context with new user data
+          await refreshUser();
+          
           toast.success('Successfully signed in!', {
             description: `Welcome back, ${data.user.name || data.user.login}!`,
           });
+          
           router.push('/dashboard');
         } else {
           throw new Error('Authentication failed: No user data received');
@@ -56,15 +54,10 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
         if (!mounted) return;
         console.error('Authentication error:', err);
         const errorMessage = err instanceof Error ? err.message : 'An error occurred during authentication';
-        setError(errorMessage);
         toast.error('Authentication failed', {
           description: errorMessage,
         });
         router.push(`/?error=${encodeURIComponent(errorMessage)}`);
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
       }
     }
 
@@ -73,7 +66,7 @@ export function CallbackHandler({ code, state }: CallbackHandlerProps) {
     return () => {
       mounted = false;
     };
-  }, [code, state, router, setUser, setLoading, setError]);
+  }, [code, state, router, refreshUser]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">

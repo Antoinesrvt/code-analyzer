@@ -2,10 +2,10 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GitBranch, Plus, History, Settings, X } from "lucide-react";
+import { GitBranch, Plus, History, Settings } from "lucide-react";
 import Image from "next/image";
-import { useAuthStore } from "@/store/useAuthStore";
-import { useAnalyzedReposStore } from "@/store/useAnalyzedReposStore";
+import { useAuth } from "@/contexts/auth/AuthContext";
+import { useRepository } from "@/contexts/repository/RepositoryContext";
 import { RepositorySelector } from "@/components/RepositorySelector";
 import type { Repository } from "@/types/auth";
 import { useRouter } from "next/navigation";
@@ -15,14 +15,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 
 export default function Dashboard() {
   const router = useRouter();
-  const store = useAuthStore();
-  const { user } = store();
-  const analyzedReposStore = useAnalyzedReposStore();
-  const { analyzedRepos } = analyzedReposStore();
+  const { githubUser } = useAuth();
+  const { analyzedRepos, selectRepository } = useRepository();
   const [showRepoSelector, setShowRepoSelector] = React.useState(false);
 
-  const handleRepositorySelect = (repo: Repository) => {
+  const handleRepositorySelect = async (repo: Repository) => {
     setShowRepoSelector(false);
+    await selectRepository(repo);
     router.push(`/analysis/${repo.owner.login}/${repo.name}`);
   };
 
@@ -34,15 +33,15 @@ export default function Dashboard() {
             <div className="flex items-center">
               <div className="relative w-10 h-10">
                 <Image
-                  src={user?.avatarUrl || ""}
-                  alt={user?.login || "User avatar"}
+                  src={githubUser?.avatarUrl || ""}
+                  alt={githubUser?.login || "User avatar"}
                   fill
                   className="rounded-full object-cover"
                 />
               </div>
               <div className="ml-4">
                 <h1 className="text-2xl font-semibold">
-                  Welcome, {user?.name || user?.login}
+                  Welcome, {githubUser?.name || githubUser?.login}
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   Manage your repository analyses

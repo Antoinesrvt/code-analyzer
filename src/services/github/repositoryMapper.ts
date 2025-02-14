@@ -1,5 +1,5 @@
-import type { Repository } from '../types/auth';
-import type { ListReposResponse } from '../types/github';
+import type { Repository } from '../../types/auth';
+import type { ListReposResponse } from '../../types/github';
 
 export class RepositoryMapper {
   static toRepository(repo: ListReposResponse): Repository {

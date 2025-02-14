@@ -2,14 +2,13 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, GitBranch, GitCommit, GitMerge, Loader2 } from 'lucide-react';
 import { ClientOnly } from './ClientOnly';
-import { useStore } from '@/store/useStore';
-import { AnalysisProgress as AnalysisProgressType } from '@/types';
+import { useRepository } from '@/contexts/repository/RepositoryContext';
+import type { AnalysisProgress as AnalysisProgressType } from '@/types';
 import { Progress } from '@/components/ui/progress';
 import { Card } from '@/components/ui/card';
 
 export function AnalysisProgress() {
-  const store = useStore();
-  const analysisProgress = store().analysisProgress;
+  const { analysisProgress } = useRepository();
 
   if (!analysisProgress) return null;
 

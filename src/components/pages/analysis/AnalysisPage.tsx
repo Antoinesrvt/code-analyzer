@@ -6,9 +6,8 @@ import { ModuleView } from "@/components/ModuleView";
 import { WorkflowView } from "@/components/WorkflowView";
 import { LoadingView } from "@/components/LoadingView";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
-import { useStore } from "@/store/useStore";
+import { useRepository } from "@/contexts/repository/RepositoryContext";
 import { useRouter } from "next/navigation";
-import { githubService } from "@/services/githubService";
 import { toast } from "sonner";
 import { 
   Boxes, 
@@ -36,110 +35,43 @@ interface AnalysisPageProps {
 export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
   const [activeView, setActiveView] = React.useState<"module" | "workflow">("module");
   const router = useRouter();
-  const store = useStore();
-  const { loading, error, analysisProgress, repository, setLoading, setError, setAnalysisProgress, setRepository } = store();
+  const { 
+    isLoading, 
+    error, 
+    analysisProgress, 
+    selectedRepo,
+    startAnalysis,
+    clearAnalysis
+  } = useRepository();
 
   React.useEffect(() => {
     let mounted = true;
-    let analysisTimeout: NodeJS.Timeout;
 
-    const startAnalysis = async () => {
+    const analyze = async () => {
       if (!mounted) return;
       
       try {
-        setLoading(true);
-        setError(null);
-        setAnalysisProgress({
-          currentPhase: 'initializing',
-          totalFiles: 0,
-          analyzedFiles: 0,
-          estimatedTimeRemaining: 0,
-          status: 'in-progress',
-          errors: []
-        });
+        await startAnalysis(owner, repo);
         
-        // Set a timeout to prevent infinite loading
-        analysisTimeout = setTimeout(() => {
-          if (mounted) {
-            setError('Analysis timeout - please try again');
-            setLoading(false);
-            setAnalysisProgress(null);
-            toast.error('Analysis Timeout', {
-              description: 'The analysis took too long to complete. Please try again.',
-              duration: 5000,
-            });
-          }
-        }, 300000); // 5 minutes timeout
-        
-        // First, ensure we have the complete repository data
-        const completeRepo = await githubService.getRepositoryData(owner, repo);
-
-        if (!mounted) return;
-
-        // Start the analysis with progress updates and error handling
-        const analyzedRepo = await githubService.analyzeRepository(
-          completeRepo.cloneUrl,
-          (progress) => {
-            if (!mounted) return;
-            setAnalysisProgress(progress);
-            
-            // Update loading state based on progress
-            if (progress.status === 'complete') {
-              setLoading(false);
-              clearTimeout(analysisTimeout);
-            } else if (progress.status === 'error') {
-              setError(progress.errors[0] || 'Analysis failed');
-              setLoading(false);
-              clearTimeout(analysisTimeout);
-            }
-          },
-          (error) => {
-            if (!mounted) return;
-            setError(error);
-            setLoading(false);
-            clearTimeout(analysisTimeout);
-            toast.error('Analysis Error', {
-              description: error,
-              duration: 5000,
-            });
-          }
-        );
-
-        if (!mounted) return;
-
-        setRepository(analyzedRepo);
-        setAnalysisProgress(null);
         toast.success('Analysis completed!', {
           description: `Successfully analyzed ${repo}`,
         });
       } catch (error) {
         if (!mounted) return;
         const message = error instanceof Error ? error.message : 'Failed to analyze repository';
-        setError(message);
-        setLoading(false);
-        setAnalysisProgress(null);
         toast.error('Analysis failed', {
           description: message,
         });
-      } finally {
-        if (mounted) {
-          clearTimeout(analysisTimeout);
-        }
       }
     };
 
-    startAnalysis();
+    analyze();
 
     return () => {
       mounted = false;
-      clearTimeout(analysisTimeout);
-      // Clean up store state when unmounting
-      setLoading(false);
-      setError(null);
-      setAnalysisProgress(null);
-      setRepository(null);
+      clearAnalysis();
     };
-  }, [owner, repo, setLoading, setError, setAnalysisProgress, setRepository]);
+  }, [owner, repo, startAnalysis, clearAnalysis]);
 
   if (error) {
     return (
@@ -148,7 +80,6 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
           router.push('/dashboard');
         }}
         onRetry={() => {
-          setError(null);
           router.refresh();
         }}
         error={error}
@@ -173,7 +104,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
       </header>
 
       <main className="container py-8">
-        {repository && (
+        {selectedRepo && (
           <div className="space-y-8">
             {/* Repository Info */}
             <Card className="p-6">
@@ -183,9 +114,9 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
                     <GitBranch className="h-6 w-6 text-primary" />
                   </div>
                   <div>
-                    <h1 className="text-2xl font-semibold">{repository.name}</h1>
+                    <h1 className="text-2xl font-semibold">{selectedRepo.name}</h1>
                     <p className="text-muted-foreground mt-1">
-                      {repository.description || 'No description available'}
+                      {selectedRepo.description || 'No description available'}
                     </p>
                   </div>
                 </div>
@@ -197,7 +128,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
                     asChild
                   >
                     <a
-                      href={repository.url}
+                      href={selectedRepo.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       title="View on GitHub"
@@ -205,7 +136,7 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
                       <Code2 className="h-4 w-4" />
                     </a>
                   </Button>
-                  {repository.isFork && (
+                  {selectedRepo.isFork && (
                     <div className="p-2" title="Forked repository">
                       <GitFork className="h-4 w-4 text-muted-foreground" />
                     </div>
@@ -218,23 +149,23 @@ export function AnalysisPage({ owner, repo }: AnalysisPageProps) {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Created {new Date(repository.createdAt).toLocaleDateString()}</span>
+                  <span>Created {new Date(selectedRepo.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="h-4 w-4" />
-                  <span>Updated {new Date(repository.updatedAt).toLocaleDateString()}</span>
+                  <span>Updated {new Date(selectedRepo.updatedAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Languages className="h-4 w-4" />
-                  <span>{repository.language || 'Multiple languages'}</span>
+                  <span>{selectedRepo.language || 'Multiple languages'}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  {repository.isPrivate ? (
+                  {selectedRepo.isPrivate ? (
                     <Lock className="h-4 w-4" />
                   ) : (
                     <Eye className="h-4 w-4" />
                   )}
-                  <span>{repository.isPrivate ? 'Private' : 'Public'}</span>
+                  <span>{selectedRepo.isPrivate ? 'Private' : 'Public'}</span>
                 </div>
               </div>
             </Card>

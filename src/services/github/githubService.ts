@@ -1,10 +1,10 @@
 import { Octokit } from '@octokit/rest';
 import type { FileNode, Module, AnalysisProgress } from '@/types';
 import type { Repository, User } from '@/types/auth';
-import { performanceMonitor } from './performanceService';
-import { workflowMonitor } from './workflowMonitor';
+import type { AnalysisPerformanceMetrics } from '@/types/performance';
+import { performanceMonitor } from '../monitoring/performanceService';
+import { workflowMonitor } from '../analysis/workflowMonitor';
 import { config } from '@/config/config';
-import type { AnalyzedRepo } from '@/store/useAnalyzedReposStore';
 
 // Helper function to get current time in milliseconds safely
 const getTimeMs = () => {
@@ -22,6 +22,15 @@ const defaultAnalysisProgress: AnalysisProgress = {
   status: 'in-progress',
   errors: [],
 };
+
+// Use the existing type from RepositoryContext
+export interface AnalyzedRepo extends Repository {
+  lastAnalyzed: string;
+  files: FileNode[];
+  modules: Module[];
+  performanceMetrics?: AnalysisPerformanceMetrics;
+  analysisProgress?: AnalysisProgress;
+}
 
 export class GitHubService {
   private octokit: Octokit | null = null;

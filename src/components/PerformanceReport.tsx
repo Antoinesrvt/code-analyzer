@@ -1,10 +1,10 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { BarChart, Activity, Clock, AlertTriangle } from 'lucide-react';
-import { PerformanceMetrics } from '../types/performance';
+import { AnalysisPerformanceMetrics } from '../types/performance';
 
 interface PerformanceReportProps {
-  metrics: PerformanceMetrics;
+  metrics: AnalysisPerformanceMetrics;
 }
 
 export function PerformanceReport({ metrics }: PerformanceReportProps) {
